@@ -4,11 +4,11 @@ import matplotlib.pyplot as plt
 import imageio
 
 #Simulation parameters (to be replaced with galaxy setup)
-N_particles = 1000
-grid_size = 64
+N_particles = 10000
+grid_size = 640
 box_size = 1.0
 dt = 0.01
-steps = 1000
+steps = 100
 
 # Initialize particle positions and velocities
 positions = np.random.rand(N_particles, 2) * box_size
@@ -64,7 +64,7 @@ for frame in trajectory:
     image = np.array(fig.canvas.buffer_rgba())
     ims.append(image[..., :3])
 
-imageio.mimsave('pm_nbody_sim.gif', ims, duration=0.05)  # Save as GIF
+imageio.mimsave('Outputs/pm_nbody_sim.gif', ims, duration=0.05)  # Save as GIF
 #imageio.mimsave('pm_nbody_sim.mp4', ims, fps=20)         # Save as MP4
 
 print("Simulation and visualization complete! GIF/MP4 saved.")
