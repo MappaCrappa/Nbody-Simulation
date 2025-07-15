@@ -1,10 +1,10 @@
 import numpy as np
-from scipy.fft import fft2, ifft2
+
 import matplotlib.pyplot as plt
 import imageio
 
 from simulation_config import *
-import mass_density
+from functions import *
 
 # Initialize particle positions and (zero) velocities
 centre = box_size / 2
@@ -12,35 +12,18 @@ spread = box_size / 8  # Smaller = more concentrated
 positions = np.random.normal(loc=centre, scale=spread, size=(N_particles, 2))
 velocities = np.zeros((N_particles, 2))
 
-def compute_potential(density, grid_size):
-    kx = np.fft.fftfreq(grid_size).reshape(-1, 1)
-    ky = np.fft.fftfreq(grid_size).reshape(1, -1)
-    k2 = kx**2 + ky**2
-    k2[0, 0] = 1
-    density_k = fft2(density)
-    potential_k = density_k / k2
-    potential = np.real(ifft2(potential_k))
-    return potential
-
-def interpolate_force(potential, positions, grid_size, box_size):
-    grad_x = np.gradient(potential, axis=0)
-    grad_y = np.gradient(potential, axis=1)
-    indices = (positions / box_size * grid_size).astype(int) % grid_size
-    forces = np.stack([grad_x[indices[:,0], indices[:,1]], grad_y[indices[:,0], indices[:,1]]], axis=1)
-    return forces
-
 # Collect positions for visualization
 trajectory = []
 COM = []            #Centre of Mass
 
 for step in range(steps):
-    density = mass_density.NGP(positions, grid_size, box_size, masses=None)
+    density = NGP(positions, grid_size, box_size, masses=None)
     potential = compute_potential(density, grid_size)
     forces = interpolate_force(potential, positions, grid_size, box_size)
     velocities += forces * dt
     positions += velocities * dt
     trajectory.append(positions.copy())
-    #Track centre of mass
+    #Track centre of mass       #Perhaps track only the masses on screen?
     com_array = np.average(positions, axis=0, weights=masses)
     COM.append(com_array.copy())
 
