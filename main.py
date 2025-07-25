@@ -1,8 +1,7 @@
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D  # Needed for 3D plotting
-import imageio as iio
-from simulation_config import *
 from functions import *
+
+#Track Time
+start_time = time.time()
 
 # Initialize particle positions and (zero) velocities
 centre = box_size / 2
@@ -19,16 +18,14 @@ energies = []
 for step in range(steps):
     if interpolation_method == 'NGP':
         density = NGP(positions, grid_size, box_size, masses)
-        potential = compute_potential(density, grid_size)
-        forces = force_NGP(potential, positions, grid_size, box_size)
     elif interpolation_method == 'CIC':
         density = CIC(positions, grid_size, box_size, masses)
-        potential = compute_potential(density, grid_size)
-        forces = force_CIC(potential, positions, grid_size, box_size)
     else:
         raise ValueError(f"Unknown interpolation method: {interpolation_method}")
     if step % 100 == 0:
-        log.debug(f"Step {step}: Computing...")
+        log.info(f"Step {step}: Computing...")
+    potential = compute_potential(density, grid_size)
+    forces = force(potential, positions, grid_size, box_size)
     velocities += forces * dt
     positions += velocities * dt
     positions = positions % box_size  # Apply periodic boundary
@@ -37,6 +34,8 @@ for step in range(steps):
         KE = compute_kinetic_energy(velocities, masses)
         PE = compute_potential_energy(positions, masses, potential, grid_size, box_size)
         energies.append([KE, PE, KE + PE])
+
+print(f"Main loop completed in {elapsed_time(start_time):.2f} seconds.. Initialising visualisation...")
 
 #Track Total Energy
 energies = np.array(energies)
@@ -49,6 +48,9 @@ plt.ylabel('Energy')
 plt.legend()
 plt.show()
 
+matplotlib_vis(trajectory, box_size)
+
+"""
 #np.save("Outputs/trajectory.npy", np.array(trajectory))
 #np.save("Outputs/energies.npy", energies)
 
@@ -84,5 +86,7 @@ with iio.get_writer("Outputs/pm_nbody_sim.mp4", fps=20) as writer:
         image = np.array(fig.canvas.buffer_rgba())[..., :3]  # RGB image
         writer.append_data(image)
     writer.close()
+"""
 
 print('Simulation and visualization complete!')
+print(f"Simulation completed in {elapsed_time(start_time):.2f} seconds.")
