@@ -48,7 +48,7 @@ plt.ylabel('Energy')
 plt.legend()
 plt.show()
 
-#Visualisation
+#Visualisation (Matplotlib / Pyplot)
 matplotlib_vis(trajectory, box_size)
 
 print('Simulation and visualization complete!')
