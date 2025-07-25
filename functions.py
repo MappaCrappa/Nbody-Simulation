@@ -6,6 +6,9 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # Needed for 3D plotting
 import imageio as iio
 import time
+import pyvista as pv
+from pyvistaqt import BackgroundPlotter
+import threading
 
 # Nearest Grid Point assignment
 def NGP(positions, grid_size, box_size, masses):
@@ -90,8 +93,7 @@ def force(potential, positions, grid_size, box_size):
         raise ValueError(f"Unknown interpolation method: {interpolation_method}")
     return forces
 
-
-def force_NGP(potential, positions, grid_size, box_size):
+def force_NGP(potential, positions, grid_size, box_size):   #Deprecated
     grad_x = np.gradient(potential, axis=0)
     grad_y = np.gradient(potential, axis=1)
     grad_z = np.gradient(potential, axis=2)
@@ -101,7 +103,7 @@ def force_NGP(potential, positions, grid_size, box_size):
     forces = np.stack([grad_x[ix, iy, iz], grad_y[ix, iy, iz], grad_z[ix, iy, iz]], axis=1)
     return forces
 
-def force_CIC(potential, positions, grid_size, box_size):
+def force_CIC(potential, positions, grid_size, box_size):   #Deprecated
     grad_x = np.gradient(potential, axis=0)
     grad_y = np.gradient(potential, axis=1)
     grad_z = np.gradient(potential, axis=2)
@@ -161,8 +163,58 @@ def matplotlib_vis(trajectory, box_size, output_path="Outputs/pm_nbody_sim.mp4",
             writer.append_data(image)
         writer.close()
 
-def pyvista_vis():
-    pass
+def pyvista_mp4(trajectory, output_path="Outputs/pm_nbody_sim.mp4", fps=20):
+    plotter = pv.Plotter(off_screen=True, window_size=(800, 800))
+    plotter.set_background("black")
+
+    # Particle Populations
+    cloud = pv.PolyData(trajectory[0])
+    plotter.add_points(cloud, color="white", point_size=2, render_points_as_spheres=True)
+
+    tracer = pv.PolyData(trajectory[0][0:1])
+    plotter.add_points(tracer, color="red", point_size=5, render_points_as_spheres=True)
+
+    # Bounding Mesh
+    bounds = pv.Cube(center=(box_size / 2, box_size / 2, box_size / 2), x_length=box_size, y_length=box_size, z_length=box_size)
+    plotter.add_mesh(bounds, color='gray', style='wireframe', opacity=0.25, line_width=1)
+
+    with iio.get_writer(output_path, fps=fps) as writer:
+        for i, frame in enumerate(trajectory):
+            cloud.points = frame                # Update all particles
+            tracer.points = frame[0:1]          # Update tracer
+            plotter.render()
+            filename = f"Outputs/_frame_tmp.png"
+            plotter.screenshot(filename)
+            writer.append_data(iio.v2.imread(filename))
+    plotter.close()
+
+def pyvista_3D(trajectory, delay=20): #WIP non-functional
+    plotter = BackgroundPlotter(window_size=(800, 800))
+    plotter.set_background("black")
+
+    # Particle Populations
+    cloud = pv.PolyData(trajectory[0])
+    plotter.add_points(cloud, color="white", point_size=2, render_points_as_spheres=True)
+
+    tracer = pv.PolyData(trajectory[0][0:1])
+    plotter.add_points(tracer, color="red", point_size=5, render_points_as_spheres=True)
+
+    # Bounding Mesh
+    bounds = pv.Cube(center=(box_size / 2, box_size / 2, box_size / 2), x_length=box_size, y_length=box_size, z_length=box_size)
+    plotter.add_mesh(bounds, color='gray', style='wireframe', opacity=0.25, line_width=1)
+
+    def animate():
+        while not plotter._closed:
+            for frame in trajectory:
+                if plotter._closed:
+                    break
+                cloud.points = frame
+                tracer.points = frame[0:1]
+                plotter.update()
+                time.sleep(delay)  # delay in ms
+
+    # Run the animation in a background thread so you can rotate/zoom live!
+    threading.Thread(target=animate, daemon=True).start()
 
 #Diagnostic Functions
 def compute_kinetic_energy(velocities, masses):

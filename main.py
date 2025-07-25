@@ -23,7 +23,7 @@ for step in range(steps):
     else:
         raise ValueError(f"Unknown interpolation method: {interpolation_method}")
     if step % 100 == 0:
-        log.info(f"Step {step}: Computing...")
+        log.info(f"Step {step}: Computing trajectories...")
     potential = compute_potential(density, grid_size)
     forces = force(potential, positions, grid_size, box_size)
     velocities += forces * dt
@@ -35,7 +35,7 @@ for step in range(steps):
         PE = compute_potential_energy(positions, masses, potential, grid_size, box_size)
         energies.append([KE, PE, KE + PE])
 
-print(f"Main loop completed in {elapsed_time(start_time):.2f} seconds.. Initialising visualisation...")
+print(f"Main loop completed in {elapsed_time(start_time):.2f} seconds. Initialising visualisation...")
 
 #Track Total Energy
 energies = np.array(energies)
@@ -43,13 +43,13 @@ plt.figure()
 plt.plot(energies[:,0], label='Kinetic')
 plt.plot(energies[:,1], label='Potential')
 plt.plot(energies[:,2], label='Total')
-plt.xlabel('Diagnostic step')
+plt.xlabel('Step')
 plt.ylabel('Energy')
 plt.legend()
 plt.show()
 
-#Visualisation (Matplotlib / Pyplot)
-matplotlib_vis(trajectory, box_size)
+#Visualisation (Matplotlib_vis / Pyvista_mp4 / Pyvista_3D)
+pyvista_mp4(trajectory)
 
 print('Simulation and visualization complete!')
 print(f"Simulation completed in {elapsed_time(start_time):.2f} seconds.")
