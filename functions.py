@@ -1,7 +1,7 @@
 import numpy as np
 from numba import njit, prange
 from scipy.fft import fftn, ifftn
-from simulation_config import *
+#from simulation_config import *
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # Needed for 3D plotting
 import imageio as iio
@@ -48,7 +48,7 @@ def compute_potential(density, grid_size):
     kx, ky, kz = np.meshgrid(k, k, k, indexing='ij')
     k2 = kx**2 + ky**2 + kz**2
     k2[0, 0, 0] = 1     #Division by 0 clause
-    density_mean = np.mean(density)
+    density_mean = np.mean(density) #make discrete kernal for accuracy to grid
     density_k = fftn(density - density_mean)
     potential_k = density_k / k2
     potential_k[0, 0, 0] = 0.0  # Set mean of potential to zero (removes constant offset)
@@ -56,7 +56,7 @@ def compute_potential(density, grid_size):
     return potential
 
 #Force
-def force(potential, positions, grid_size, box_size):
+def force(potential, positions, grid_size, box_size, interpolation_method):
     grad_x = np.gradient(potential, axis=0)
     grad_y = np.gradient(potential, axis=1)
     grad_z = np.gradient(potential, axis=2)
@@ -107,7 +107,6 @@ def force_CIC(potential, positions, grid_size, box_size):   #Deprecated
     grad_x = np.gradient(potential, axis=0)
     grad_y = np.gradient(potential, axis=1)
     grad_z = np.gradient(potential, axis=2)
-    # Combine into force_grid for easier access
     force_grid = np.stack([grad_x, grad_y, grad_z], axis=-1)  # shape (Nx,Ny,Nz,3)
     N_particles = positions.shape[0]
     cell_size = box_size / grid_size
@@ -163,7 +162,7 @@ def matplotlib_vis(trajectory, box_size, output_path="Outputs/pm_nbody_sim.mp4",
             writer.append_data(image)
         writer.close()
 
-def pyvista_mp4(trajectory, output_path="Outputs/pm_nbody_sim.mp4", fps=20):
+def pyvista_mp4(trajectory, box_size, output_path="Outputs/pm_nbody_sim.mp4", fps=20):
     plotter = pv.Plotter(off_screen=True, window_size=(800, 800))
     plotter.set_background("black")
 
@@ -220,9 +219,6 @@ def pyvista_3D(trajectory, delay=20): #WIP non-functional
 def compute_kinetic_energy(velocities, masses):
     KE = 0.5 * np.sum(masses * np.sum(velocities**2, axis=1))
     return KE
-
-def compute_momentum(velocities, masses):
-    return np.sum(masses[:, np.newaxis] * velocities, axis=0)
 
 def compute_potential_energy(positions, masses, potential, grid_size, box_size):
     # Assign particle to nearest grid for potential
