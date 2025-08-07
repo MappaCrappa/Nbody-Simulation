@@ -1,10 +1,11 @@
 from functions import *
 import numpy as np
+import matplotlib.pyplot as plt
 
 # Simulation parameters
 N_particles = 5000
 tracer_mass = 5
-grid_size = 128
+grid_size = 256
 box_size = 40.0
 dt = 0.01
 steps = 500
@@ -39,7 +40,7 @@ energies = []
 trajectory_buffer.append(positions.copy())  # Initial positions
 
 # Pre-select interpolation method function to avoid if-else in loop
-density_func = CIC_optimized if interpolation_method == 'CIC' else NGP
+density_func = CIC_optimized
 
 # Pre-allocate temporary arrays
 temp_positions = np.empty_like(positions)
