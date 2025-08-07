@@ -1,87 +1,98 @@
 from functions import *
+import numpy as np
 
-#Please input initial conditions and parameters for the simulation below.
-
-#Simulation parameters (to be replaced with galaxy setup)
-N_particles = 500
-tracer_mass = 5                       # Tracer particle mass
-grid_size = 64                        # Taxing
-box_size = 4.0
+# Simulation parameters
+N_particles = 5000
+tracer_mass = 5
+grid_size = 128
+box_size = 40.0
 dt = 0.01
 steps = 500
-interpolation_method = 'CIC'          # NGP/CIC
+interpolation_method = 'CIC'
 
-#Resolution settings (to be added)
-
-#Configure logging
+# Configure logging
 import logging as log
-log_level = 'INFO'  # 'DEBUG' 'INFO', 'ERROR'
-log.basicConfig(level=getattr(log, log_level), format='[%(levelname)s] %(message)s')    # Formatting
-log.getLogger('matplotlib').setLevel(log.ERROR)                                         # Silence Matplotlib
+log_level = 'INFO'
+log.basicConfig(level=getattr(log, log_level), format='[%(levelname)s] %(message)s')
+log.getLogger('matplotlib').setLevel(log.ERROR)
 
-#Tracking (to be added)
+# Pre-compute constants to avoid repeated calculations
+cell_size = box_size / grid_size
+inv_dt = 1.0 / dt
+log_interval = 100
+energy_interval = 10
 
-#Track Time
+# Track time
 start_time = time.time()
 
-# Initialize particle positions and (zero) velocities
+# Initialize particle data
 centre = box_size / 2
-spread = box_size / 16  # Smaller = more concentrated
-positions = np.random.normal(loc=centre, scale=spread, size=(N_particles, 3))
-velocities = np.zeros((N_particles, 3))
-masses = np.ones(N_particles)
+spread = box_size / 16
+positions = np.random.normal(loc=centre, scale=spread, size=(N_particles, 3)).astype(np.float32)
+velocities = np.zeros((N_particles, 3), dtype=np.float32)
+masses = np.ones(N_particles, dtype=np.float32)
 masses[0] = tracer_mass
 
-# Collect positions for visualization
-trajectory = []
+# Pre-allocate arrays
+trajectory_buffer = TrajectoryBuffer(steps, N_particles, compress=True)
 energies = []
+trajectory_buffer.append(positions.copy())  # Initial positions
 
-#Main loop
+# Pre-select interpolation method function to avoid if-else in loop
+density_func = CIC_optimized if interpolation_method == 'CIC' else NGP
+
+# Pre-allocate temporary arrays
+temp_positions = np.empty_like(positions)
+forces = np.empty_like(velocities)
+
+print(f"Initialization completed. Starting main loop with {N_particles} particles...")
+
+# Optimized main loop
 for step in range(steps):
+    # Progress logging (only when needed)
+    if step % log_interval == 0:
+        log.info(f"Step {step}/{steps}: Computing trajectories...")
 
-    #Interpolation method choice from config. Change within function later
-    if interpolation_method == 'NGP':
-        density = NGP(positions, grid_size, box_size, masses)
-    elif interpolation_method == 'CIC':
-        density = CIC(positions, grid_size, box_size, masses)
-    else:
-        raise ValueError(f"Unknown interpolation method: {interpolation_method}")
+    # Compute density (most expensive operation)
+    density = density_func(positions, grid_size, box_size, masses)
+    
+    # Compute potential and forces
+    potential = compute_potential_fft_optimized(density, grid_size)
+    forces = compute_forces(potential, positions, grid_size, box_size, interpolation_method)
 
-    #Process info every 100th step
-    if step % 100 == 0:
-        log.info(f"Step {step}: Computing trajectories...")
-
-    #Calculating potential and forces
-    potential = compute_potential(density, grid_size)
-    forces = force(potential, positions, grid_size, box_size, interpolation_method)
-
-    #Updating particle kinematics
+    # Update particle kinematics (vectorized operations)
     velocities += forces * dt
-    positions += velocities * dt
-    positions = positions % box_size  # Apply periodic boundary
-    trajectory.append(positions.copy())
+    temp_positions[:] = positions + velocities * dt
+    np.mod(temp_positions, box_size, out=positions)  # In-place periodic boundary
+    
+    # Store trajectory (only copy when necessary)
+    trajectory_buffer.append(positions)
 
-    #Diagnostic Energy Tracker (every 10th step)
-    if step % 10 == 0:
+    # Compute diagnostics less frequently
+    if step % energy_interval == 0:
         KE = compute_kinetic_energy(velocities, masses)
         PE = compute_potential_energy(positions, masses, potential, grid_size, box_size)
         energies.append([KE, PE, KE + PE])
 
-print(f"Main loop completed in {elapsed_time(start_time):.2f} seconds. Initialising visualisation...")
+print(f"Main loop completed in {elapsed_time(start_time):.2f} seconds.")
 
-#Track Total Energy
+# Optimized energy plotting
 energies = np.array(energies)
-plt.figure()
-plt.plot(energies[:,0], label='Kinetic')
-plt.plot(energies[:,1], label='Potential')
-plt.plot(energies[:,2], label='Total')
+plt.figure(figsize=(10, 6))
+steps_energy = np.arange(0, len(energies) * energy_interval, energy_interval)
+plt.plot(steps_energy, energies[:, 0], label='Kinetic', linewidth=2)
+plt.plot(steps_energy, energies[:, 1], label='Potential', linewidth=2)
+plt.plot(steps_energy, energies[:, 2], label='Total', linewidth=2)
 plt.xlabel('Step')
 plt.ylabel('Energy')
 plt.legend()
+plt.grid(True, alpha=0.3)
 plt.show()
 
-#Visualisation (Matplotlib_vis / Pyvista_mp4 / Pyvista_3D)
+# Visualization
+print("Initializing visualization...")
+trajectory = trajectory_buffer.get_trajectory()
 pyvista_mp4(trajectory, box_size)
 
 print('Simulation and visualization complete!')
-print(f"Simulation completed in {elapsed_time(start_time):.2f} seconds.")
+print(f"Total simulation time: {elapsed_time(start_time):.2f} seconds.")
