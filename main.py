@@ -9,7 +9,9 @@ grid_size = 64                        # Taxing
 box_size = 4.0
 dt = 0.01
 steps = 500
-interpolation_method = 'CIC'   # NGP/CIC
+interpolation_method = 'CIC'          # NGP/CIC
+
+#Resolution settings (to be added)
 
 #Configure logging
 import logging as log
@@ -67,7 +69,7 @@ for step in range(steps):
 
 print(f"Main loop completed in {elapsed_time(start_time):.2f} seconds. Initialising visualisation...")
 
-"""#Track Total Energy
+#Track Total Energy
 energies = np.array(energies)
 plt.figure()
 plt.plot(energies[:,0], label='Kinetic')
@@ -76,7 +78,7 @@ plt.plot(energies[:,2], label='Total')
 plt.xlabel('Step')
 plt.ylabel('Energy')
 plt.legend()
-plt.show()"""
+plt.show()
 
 #Visualisation (Matplotlib_vis / Pyvista_mp4 / Pyvista_3D)
 pyvista_mp4(trajectory, box_size)

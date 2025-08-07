@@ -1,27 +1,25 @@
-import numpy as np
-from numba import njit, prange
-from scipy.fft import fftn, ifftn
-#from simulation_config import *
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D  # Needed for 3D plotting
-import imageio as iio
 import time
+import numpy as np
+from numba import njit, prange, cuda
+from scipy.fft import fftn, ifftn
+import imageio as iio
 import pyvista as pv
+import matplotlib.pyplot as plt
 from pyvistaqt import BackgroundPlotter
 import threading
 
 # Nearest Grid Point assignment
 def NGP(positions, grid_size, box_size, masses):
-    density = np.zeros((grid_size,)*3, dtype=float)
+    density = np.zeros((grid_size,)*3, dtype=float)                                                         # Intialising density value at 0
     positions = positions % box_size                                                                        # Wrapped positions across box edges
     indices = np.floor(positions / box_size * grid_size).astype(int)                                        # Normalize to grid indices
     np.add.at(density, (indices[:, 0], indices[:, 1], indices[:, 2]), masses)                        # Mass Counting
     return density
 
 # Cloud-in-Cell assignment
-@njit(parallel=True, fastmath=True)
+@njit(parallel=False, fastmath=True)
 def CIC(positions, grid_size, box_size, masses):
-    density = np.zeros((grid_size, grid_size, grid_size), dtype=float)
+    density = np.zeros((grid_size, grid_size, grid_size), dtype=np.float32)
     cell_size = box_size / grid_size
     for p in prange(positions.shape[0]):    #For Nth particle in Positions
         position = positions[p] % box_size
@@ -41,6 +39,65 @@ def CIC(positions, grid_size, box_size, masses):
                     z = (i[2] + dz) % grid_size
                     density[x, y, z] += mass * wx * wy * wz
     return density
+
+@cuda.jit(parallel=True, fastmath=True)
+def CIC_atomic(positions, grid_size, box_size, masses):
+    Np = positions.shape[0]
+    inv_cell = grid_size / box_size
+    volume = (box_size / grid_size)**3
+
+    # 1D density array for atomics
+    dens_flat = np.zeros(grid_size*grid_size*grid_size, dtype=np.float64)
+
+    for p in prange(Np):
+        # wrap & scale to grid units
+        xg = (positions[p,0] % box_size) * inv_cell
+        yg = (positions[p,1] % box_size) * inv_cell
+        zg = (positions[p,2] % box_size) * inv_cell
+
+        i0 = int(np.floor(xg));  dx = xg - i0
+        j0 = int(np.floor(yg));  dy = yg - j0
+        k0 = int(np.floor(zg));  dz = zg - k0
+
+        # the two grid-indices along each axis
+        i1 = (i0 + 1) % grid_size
+        j1 = (j0 + 1) % grid_size
+        k1 = (k0 + 1) % grid_size
+
+        # trilinear weights
+        w000 = (1-dx)*(1-dy)*(1-dz)
+        w100 =   dx *(1-dy)*(1-dz)
+        w010 = (1-dx)*  dy *(1-dz)
+        w001 = (1-dx)*(1-dy)*  dz
+        w101 =   dx *(1-dy)*  dz
+        w011 = (1-dx)*  dy *  dz
+        w110 =   dx *  dy *(1-dz)
+        w111 =   dx *  dy *  dz
+
+        m = masses[p]
+        # compute flat-indices = x + y⋅Nx + z⋅Nx Ny
+        base0 = i0 + j0*grid_size + k0*grid_size*grid_size
+        base1 = i1 + j0*grid_size + k0*grid_size*grid_size
+        base2 = i0 + j1*grid_size + k0*grid_size*grid_size
+        base3 = i0 + j0*grid_size + k1*grid_size*grid_size
+        base4 = i1 + j0*grid_size + k1*grid_size*grid_size
+        base5 = i0 + j1*grid_size + k1*grid_size*grid_size
+        base6 = i1 + j1*grid_size + k0*grid_size*grid_size
+        base7 = i1 + j1*grid_size + k1*grid_size*grid_size
+
+        # atomic adds
+        cuda.atomic.add(dens_flat, base0, m * w000)
+        cuda.atomic.add(dens_flat, base1, m * w100)
+        cuda.atomic.add(dens_flat, base2, m * w010)
+        cuda.atomic.add(dens_flat, base3, m * w001)
+        cuda.atomic.add(dens_flat, base4, m * w101)
+        cuda.atomic.add(dens_flat, base5, m * w011)
+        cuda.atomic.add(dens_flat, base6, m * w110)
+        cuda.atomic.add(dens_flat, base7, m * w111)
+
+    # reshape and convert to true mass density (mass per volume)
+    density = dens_flat.reshape((grid_size,)*3)
+    return density / volume
 
 # Potential
 def compute_potential(density, grid_size):
@@ -93,85 +150,17 @@ def force(potential, positions, grid_size, box_size, interpolation_method):
         raise ValueError(f"Unknown interpolation method: {interpolation_method}")
     return forces
 
-def force_NGP(potential, positions, grid_size, box_size):   #Deprecated
-    grad_x = np.gradient(potential, axis=0)
-    grad_y = np.gradient(potential, axis=1)
-    grad_z = np.gradient(potential, axis=2)
-    indices = (positions / box_size * grid_size).astype(int) % grid_size
-    ix, iy, iz = indices[:, 0], indices[:, 1], indices[:, 2]
-    # Interpolate force from gradients at particle grid locations
-    forces = np.stack([grad_x[ix, iy, iz], grad_y[ix, iy, iz], grad_z[ix, iy, iz]], axis=1)
-    return forces
-
-def force_CIC(potential, positions, grid_size, box_size):   #Deprecated
-    grad_x = np.gradient(potential, axis=0)
-    grad_y = np.gradient(potential, axis=1)
-    grad_z = np.gradient(potential, axis=2)
-    force_grid = np.stack([grad_x, grad_y, grad_z], axis=-1)  # shape (Nx,Ny,Nz,3)
-    N_particles = positions.shape[0]
-    cell_size = box_size / grid_size
-    forces = np.zeros((N_particles, 3))
-    positions = positions % box_size
-
-    scaled_pos = positions / cell_size
-    i = np.floor(scaled_pos).astype(int)
-    d = scaled_pos - i
-
-    for p in range(N_particles):
-        base = i[p]
-        w = d[p]
-        for dx in [0, 1]:
-            wx = (1 - w[0]) if dx == 0 else w[0]
-            x = (base[0] + dx) % grid_size
-            for dy in [0, 1]:
-                wy = (1 - w[1]) if dy == 0 else w[1]
-                y = (base[1] + dy) % grid_size
-                for dz in [0, 1]:
-                    wz = (1 - w[2]) if dz == 0 else w[2]
-                    z = (base[2] + dz) % grid_size
-                    weight = wx * wy * wz
-                    forces[p] += force_grid[x, y, z] * weight
-    return forces
-
 #Visualisation
-def matplotlib_vis(trajectory, box_size, output_path="Outputs/pm_nbody_sim.mp4", tail_length=30, fade_min=0.05, fps=20):
-    fig = plt.figure(figsize=(8, 8), dpi=80)
-    ax = fig.add_subplot(111, projection='3d')
-    tracked_traj = np.array([frame[0] for frame in trajectory])
-    with iio.get_writer("Outputs/pm_nbody_sim.mp4", fps=20) as writer:
-        for i, frame in enumerate(trajectory):
-            ax.clear()
-            ax.set_xlim(0, box_size)
-            ax.set_ylim(0, box_size)
-            ax.set_zlim(0, box_size)
-            ax.set_xticks([])
-            ax.set_yticks([])
-            ax.set_zticks([])
-            ax.scatter(frame[:, 0], frame[:, 1], frame[:, 2], s=1, color='black')
-            ax.scatter(frame[0, 0], frame[0, 1], frame[0, 2], s=10, color='red')
-            # Tail generation
-            start = max(0, i - tail_length + 1)
-            tail = tracked_traj[start:i + 1]
-            n_tail = len(tail)
-            if n_tail > 1:
-                for j in range(n_tail - 1):
-                    alpha = fade_min + (1 - fade_min) * (j + 1) / n_tail
-                    ax.plot(tail[j:j + 2, 0], tail[j:j + 2, 1], tail[j:j + 2, 2], color='red', linewidth=1, alpha=alpha)
-            fig.canvas.draw()
-            image = np.array(fig.canvas.buffer_rgba())[..., :3]  # RGB image
-            writer.append_data(image)
-        writer.close()
-
 def pyvista_mp4(trajectory, box_size, output_path="Outputs/pm_nbody_sim.mp4", fps=20):
     plotter = pv.Plotter(off_screen=True, window_size=(800, 800))
     plotter.set_background("black")
 
-    # Particle Populations
+    # Particle Populations - Render_points_as_spheres = True has a bug on AMD GPUs on Windows where it produces no output -> Set to False
     cloud = pv.PolyData(trajectory[0])
-    plotter.add_points(cloud, color="white", point_size=2, render_points_as_spheres=True)
+    plotter.add_points(cloud, color="white", point_size=2, render_points_as_spheres=False)
 
     tracer = pv.PolyData(trajectory[0][0:1])
-    plotter.add_points(tracer, color="red", point_size=5, render_points_as_spheres=True)
+    plotter.add_points(tracer, color="red", point_size=5, render_points_as_spheres=False)
 
     # Bounding Mesh
     bounds = pv.Cube(center=(box_size / 2, box_size / 2, box_size / 2), x_length=box_size, y_length=box_size, z_length=box_size)
@@ -187,7 +176,7 @@ def pyvista_mp4(trajectory, box_size, output_path="Outputs/pm_nbody_sim.mp4", fp
             writer.append_data(iio.v2.imread(filename))
     plotter.close()
 
-def pyvista_3D(trajectory, delay=20): #WIP non-functional
+def pyvista_3D(trajectory, box_size, delay=20): #WIP non-functional
     plotter = BackgroundPlotter(window_size=(800, 800))
     plotter.set_background("black")
 
