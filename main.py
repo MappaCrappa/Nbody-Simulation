@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 N_particles = 500
 tracer_mass = 5                       # Tracer particle mass
 grid_size = 64                        # Taxing
-box_size = 4.0
+box_size = 40.0
 dt = 0.01
 steps = 500
 CIC_interpolation = True              # NGP/CIC
@@ -31,13 +31,13 @@ velocities = np.zeros((N_particles, 3), dtype=np.float32)
 masses = np.ones(N_particles, dtype=np.float32)
 masses[0] = tracer_mass
 
-# Collect positions for visualization
+# Collect positions and energy for visualization
 trajectory = []
 energies = []
 
 #Interpolation method
 density_func = CIC if CIC_interpolation == True else NGP
-force_func = force_CIC if CIC_interpolation == True else NGP
+force_func = force_CIC if CIC_interpolation == True else force_NGP
 
 #Main loop
 for step in range(steps):
@@ -79,7 +79,6 @@ plt.legend()
 plt.show()
 
 #Visualisation (Matplotlib_vis / Pyvista_mp4 / Pyvista_3D)
-print("Initializing visualization...")
 pyvista_mp4(trajectory, box_size)
 
 print('Simulation and visualization complete!')

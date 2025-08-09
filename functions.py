@@ -2,7 +2,6 @@ import time
 import numpy as np
 from numba import njit
 from scipy.fft import fftn, ifftn
-import imageio as iio
 import pyvista as pv
 from pyvistaqt import BackgroundPlotter
 import threading
@@ -180,7 +179,12 @@ def force_CIC(potential_gradient: np.ndarray, positions: np.ndarray, grid_size: 
     return forces
 
 #Visualisation
-def pyvista_mp4(trajectory, box_size, output_path="Outputs/pm_nbody_sim.mp4", fps=20):
+def pyvista_mp4(trajectory: list, box_size: float, output_path: str ="Outputs/pm_nbody_sim.mp4", fps: int=20):
+
+    #Make trajectory a numpy array
+    trajectory = np.asarray(trajectory)
+
+    #Plotter configuration
     plotter = pv.Plotter(off_screen=True, window_size=(800, 800))
     plotter.set_background("black")
 
@@ -195,15 +199,19 @@ def pyvista_mp4(trajectory, box_size, output_path="Outputs/pm_nbody_sim.mp4", fp
     bounds = pv.Cube(center=(box_size / 2, box_size / 2, box_size / 2), x_length=box_size, y_length=box_size, z_length=box_size)
     plotter.add_mesh(bounds, color='gray', style='wireframe', opacity=0.25, line_width=1)
 
-    with iio.get_writer(output_path, fps=fps) as writer:
-        for i, frame in enumerate(trajectory):
-            cloud.points = frame                # Update all particles
-            tracer.points = frame[0:1]          # Update tracer
-            plotter.render()
-            filename = f"Outputs/_frame_tmp.png"
-            plotter.screenshot(filename)
-            writer.append_data(iio.v2.imread(filename))
-    plotter.close()
+    # Lock camera (saves recalculating)
+    plotter.view_isometric()
+    plotter.camera.zoom(1.0)
+
+    #Write frames
+    plotter.open_movie(output_path, framerate=fps)
+    try:
+        for i in range(trajectory.shape[0]):
+            cloud.points[:] = trajectory[i]          # Update all particles
+            tracer.points[0] = trajectory[i, 0]      # Update tracer (single point)
+            plotter.write_frame()                    # Renders and appends the frame
+    finally:
+        plotter.close()
 
 def pyvista_3D(trajectory, box_size, delay=20): #WIP non-functional
     plotter = BackgroundPlotter(window_size=(800, 800))
