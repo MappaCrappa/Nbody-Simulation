@@ -1,153 +1,182 @@
 import time
 import numpy as np
-from numba import njit, prange, cuda
+from numba import njit
 from scipy.fft import fftn, ifftn
 import imageio as iio
 import pyvista as pv
-import matplotlib.pyplot as plt
 from pyvistaqt import BackgroundPlotter
 import threading
 
 # Nearest Grid Point assignment
-def NGP(positions, grid_size, box_size, masses):
+def NGP(positions: np.ndarray, grid_size: int, box_size: float, masses: np.ndarray)-> np.ndarray:
     density = np.zeros((grid_size,)*3, dtype=float)                                                         # Intialising density value at 0
     positions = positions % box_size                                                                        # Wrapped positions across box edges
     indices = np.floor(positions / box_size * grid_size).astype(int)                                        # Normalize to grid indices
     np.add.at(density, (indices[:, 0], indices[:, 1], indices[:, 2]), masses)                        # Mass Counting
     return density
 
-# Cloud-in-Cell assignment
-@njit(parallel=False, fastmath=True)
-def CIC(positions, grid_size, box_size, masses):
+# Cloud-in-Cell assignment with minimal memory allocations (parallel=False is faster)
+@njit(parallel=False, fastmath=True, cache=True)
+def CIC(positions: np.ndarray, grid_size: int, box_size: float, masses: np.ndarray) -> np.ndarray:
+
     density = np.zeros((grid_size, grid_size, grid_size), dtype=np.float32)
-    cell_size = box_size / grid_size
-    for p in prange(positions.shape[0]):    #For Nth particle in Positions
-        position = positions[p] % box_size
+    inverse_cell_size = grid_size / box_size  # Pre-compute inverse
+
+    for p in range(positions.shape[0]):
+        # Wrap positions efficiently
+        x = positions[p, 0] % box_size
+        y = positions[p, 1] % box_size
+        z = positions[p, 2] % box_size
+
+        # Scale to grid coordinates
+        scaled_x = x * inverse_cell_size
+        scaled_y = y * inverse_cell_size
+        scaled_z = z * inverse_cell_size
+
+        # Floor and fractional parts
+        i = int(scaled_x)
+        j = int(scaled_y)
+        k = int(scaled_z)
+
+        dx = scaled_x - i
+        dy = scaled_y - j
+        dz = scaled_z - k
+
+        # Pre-compute weights
+        wx0 = 1.0 - dx
+        wx1 = dx
+        wy0 = 1.0 - dy
+        wy1 = dy
+        wz0 = 1.0 - dz
+        wz1 = dz
+
         mass = masses[p]
-        # Find normalized cell indices and weights
-        scaled_pos = position / cell_size
-        i = np.floor(scaled_pos).astype(np.int64)
-        d = scaled_pos - i
-        for dx in (0, 1):
-            wx = 1.0 - d[0] if dx == 0 else d[0]
-            x = (i[0] + dx) % grid_size
-            for dy in (0, 1):
-                wy = 1.0 - d[1] if dy == 0 else d[1]
-                y = (i[1] + dy) % grid_size
-                for dz in (0, 1):
-                    wz = 1.0 - d[2] if dz == 0 else d[2]
-                    z = (i[2] + dz) % grid_size
-                    density[x, y, z] += mass * wx * wy * wz
+
+        # Unroll loops for better performance
+        i1 = (i + 1) % grid_size
+        j1 = (j + 1) % grid_size
+        k1 = (k + 1) % grid_size
+
+        # 8 corner contributions
+        density[i, j, k] += mass * wx0 * wy0 * wz0
+        density[i1, j, k] += mass * wx1 * wy0 * wz0
+        density[i, j1, k] += mass * wx0 * wy1 * wz0
+        density[i, j, k1] += mass * wx0 * wy0 * wz1
+        density[i1, j1, k] += mass * wx1 * wy1 * wz0
+        density[i1, j, k1] += mass * wx1 * wy0 * wz1
+        density[i, j1, k1] += mass * wx0 * wy1 * wz1
+        density[i1, j1, k1] += mass * wx1 * wy1 * wz1
+
     return density
 
-@cuda.jit(parallel=True, fastmath=True)
-def CIC_atomic(positions, grid_size, box_size, masses):
-    Np = positions.shape[0]
-    inv_cell = grid_size / box_size
-    volume = (box_size / grid_size)**3
-
-    # 1D density array for atomics
-    dens_flat = np.zeros(grid_size*grid_size*grid_size, dtype=np.float64)
-
-    for p in prange(Np):
-        # wrap & scale to grid units
-        xg = (positions[p,0] % box_size) * inv_cell
-        yg = (positions[p,1] % box_size) * inv_cell
-        zg = (positions[p,2] % box_size) * inv_cell
-
-        i0 = int(np.floor(xg));  dx = xg - i0
-        j0 = int(np.floor(yg));  dy = yg - j0
-        k0 = int(np.floor(zg));  dz = zg - k0
-
-        # the two grid-indices along each axis
-        i1 = (i0 + 1) % grid_size
-        j1 = (j0 + 1) % grid_size
-        k1 = (k0 + 1) % grid_size
-
-        # trilinear weights
-        w000 = (1-dx)*(1-dy)*(1-dz)
-        w100 =   dx *(1-dy)*(1-dz)
-        w010 = (1-dx)*  dy *(1-dz)
-        w001 = (1-dx)*(1-dy)*  dz
-        w101 =   dx *(1-dy)*  dz
-        w011 = (1-dx)*  dy *  dz
-        w110 =   dx *  dy *(1-dz)
-        w111 =   dx *  dy *  dz
-
-        m = masses[p]
-        # compute flat-indices = x + y⋅Nx + z⋅Nx Ny
-        base0 = i0 + j0*grid_size + k0*grid_size*grid_size
-        base1 = i1 + j0*grid_size + k0*grid_size*grid_size
-        base2 = i0 + j1*grid_size + k0*grid_size*grid_size
-        base3 = i0 + j0*grid_size + k1*grid_size*grid_size
-        base4 = i1 + j0*grid_size + k1*grid_size*grid_size
-        base5 = i0 + j1*grid_size + k1*grid_size*grid_size
-        base6 = i1 + j1*grid_size + k0*grid_size*grid_size
-        base7 = i1 + j1*grid_size + k1*grid_size*grid_size
-
-        # atomic adds
-        cuda.atomic.add(dens_flat, base0, m * w000)
-        cuda.atomic.add(dens_flat, base1, m * w100)
-        cuda.atomic.add(dens_flat, base2, m * w010)
-        cuda.atomic.add(dens_flat, base3, m * w001)
-        cuda.atomic.add(dens_flat, base4, m * w101)
-        cuda.atomic.add(dens_flat, base5, m * w011)
-        cuda.atomic.add(dens_flat, base6, m * w110)
-        cuda.atomic.add(dens_flat, base7, m * w111)
-
-    # reshape and convert to true mass density (mass per volume)
-    density = dens_flat.reshape((grid_size,)*3)
-    return density / volume
-
 # Potential
-def compute_potential(density, grid_size):
-    k = np.fft.fftfreq(grid_size)
+def compute_potential(density: np.ndarray, grid_size: int) -> np.ndarray:
+    # Pre-computing k2 grid
+    k = np.fft.fftfreq(grid_size).astype(np.float32)
     kx, ky, kz = np.meshgrid(k, k, k, indexing='ij')
     k2 = kx**2 + ky**2 + kz**2
-    k2[0, 0, 0] = 1     #Division by 0 clause
-    density_mean = np.mean(density) #make discrete kernal for accuracy to grid
+    k2[0, 0, 0] = 1             # Division by 0 clause
+
+    # Fourier transform
+    density_mean = np.mean(density)
     density_k = fftn(density - density_mean)
+
+    # Poisson equation
     potential_k = density_k / k2
     potential_k[0, 0, 0] = 0.0  # Set mean of potential to zero (removes constant offset)
-    potential = np.real(ifftn(potential_k))
-    return potential
+
+    #Inverse Fourier transform
+    return np.real(ifftn(potential_k))
 
 #Force
-def force(potential, positions, grid_size, box_size, interpolation_method):
-    grad_x = np.gradient(potential, axis=0)
-    grad_y = np.gradient(potential, axis=1)
-    grad_z = np.gradient(potential, axis=2)
-    if interpolation_method == 'NGP': # Interpolate force from gradients at particle grid locations
-        indices = (positions / box_size * grid_size).astype(int) % grid_size
-        ix, iy, iz = indices[:, 0], indices[:, 1], indices[:, 2]
-        forces = np.stack([grad_x[ix, iy, iz], grad_y[ix, iy, iz], grad_z[ix, iy, iz]], axis=1)
-    elif interpolation_method == 'CIC':
-        force_grid = np.stack([grad_x, grad_y, grad_z], axis=-1)  # shape (Nx,Ny,Nz,3)
-        N_particles = positions.shape[0]
-        cell_size = box_size / grid_size
-        forces = np.zeros((N_particles, 3))
-        positions = positions % box_size
+def force_NGP(potential_gradient: np.ndarray, positions: np.ndarray, grid_size: int, box_size: float) -> np.ndarray:
+    grad_x, grad_y, grad_z = potential_gradient[0], potential_gradient[1], potential_gradient[2]
+    indices = (positions / box_size * grid_size).astype(int) % grid_size
+    ix, iy, iz = indices[:, 0], indices[:, 1], indices[:, 2]
+    forces = np.stack([grad_x[ix, iy, iz], grad_y[ix, iy, iz], grad_z[ix, iy, iz]], axis=1)
+    return forces
 
-        scaled_pos = positions / cell_size
-        i = np.floor(scaled_pos).astype(int)
-        d = scaled_pos - i
+@njit(parallel=False, fastmath=True, cache=True)
+def force_CIC(potential_gradient: np.ndarray, positions: np.ndarray, grid_size: int, box_size: float) -> np.ndarray:
+    N_particles = positions.shape[0]
+    forces = np.zeros((N_particles, 3), dtype=np.float32)
+    inv_cell_size = grid_size / box_size
+    grad_x, grad_y, grad_z = potential_gradient[0], potential_gradient[1], potential_gradient[2]
 
-        for p in range(N_particles):
-            base = i[p]
-            w = d[p]
-            for dx in [0, 1]:
-                wx = (1 - w[0]) if dx == 0 else w[0]
-                x = (base[0] + dx) % grid_size
-                for dy in [0, 1]:
-                    wy = (1 - w[1]) if dy == 0 else w[1]
-                    y = (base[1] + dy) % grid_size
-                    for dz in [0, 1]:
-                        wz = (1 - w[2]) if dz == 0 else w[2]
-                        z = (base[2] + dz) % grid_size
-                        weight = wx * wy * wz
-                        forces[p] += force_grid[x, y, z] * weight
-    else:
-        raise ValueError(f"Unknown interpolation method: {interpolation_method}")
+    for p in range(N_particles):
+        #Position wrapping
+        x = positions[p, 0] % box_size
+        y = positions[p, 1] % box_size
+        z = positions[p, 2] % box_size
+
+        #Scale to grid coordinates
+        scaled_x = x * inv_cell_size
+        scaled_y = y * inv_cell_size
+        scaled_z = z * inv_cell_size
+
+        #Floor & fractional parts
+        i = int(scaled_x)
+        j = int(scaled_y)
+        k = int(scaled_z)
+
+        dx = scaled_x - i
+        dy = scaled_y - j
+        dz = scaled_z - k
+
+        # Pre-compute weights
+        wx0 = 1.0 - dx
+        wx1 = dx
+        wy0 = 1.0 - dy
+        wy1 = dy
+        wz0 = 1.0 - dz
+        wz1 = dz
+
+        # Unroll loops for better performance
+        i1 = (i + 1) % grid_size
+        j1 = (j + 1) % grid_size
+        k1 = (k + 1) % grid_size
+
+        # Accumulate forces from 8 corners
+        w = wx0 * wy0 * wz0
+        forces[p, 0] += grad_x[i, j, k] * w
+        forces[p, 1] += grad_y[i, j, k] * w
+        forces[p, 2] += grad_z[i, j, k] * w
+
+        w = wx1 * wy0 * wz0
+        forces[p, 0] += grad_x[i1, j, k] * w
+        forces[p, 1] += grad_y[i1, j, k] * w
+        forces[p, 2] += grad_z[i1, j, k] * w
+
+        w = wx0 * wy1 * wz0
+        forces[p, 0] += grad_x[i, j1, k] * w
+        forces[p, 1] += grad_y[i, j1, k] * w
+        forces[p, 2] += grad_z[i, j1, k] * w
+
+        w = wx0 * wy0 * wz1
+        forces[p, 0] += grad_x[i, j, k1] * w
+        forces[p, 1] += grad_y[i, j, k1] * w
+        forces[p, 2] += grad_z[i, j, k1] * w
+
+        w = wx1 * wy1 * wz0
+        forces[p, 0] += grad_x[i1, j1, k] * w
+        forces[p, 1] += grad_y[i1, j1, k] * w
+        forces[p, 2] += grad_z[i1, j1, k] * w
+
+        w = wx1 * wy0 * wz1
+        forces[p, 0] += grad_x[i1, j, k1] * w
+        forces[p, 1] += grad_y[i1, j, k1] * w
+        forces[p, 2] += grad_z[i1, j, k1] * w
+
+        w = wx0 * wy1 * wz1
+        forces[p, 0] += grad_x[i, j1, k1] * w
+        forces[p, 1] += grad_y[i, j1, k1] * w
+        forces[p, 2] += grad_z[i, j1, k1] * w
+
+        w = wx1 * wy1 * wz1
+        forces[p, 0] += grad_x[i1, j1, k1] * w
+        forces[p, 1] += grad_y[i1, j1, k1] * w
+        forces[p, 2] += grad_z[i1, j1, k1] * w
+
     return forces
 
 #Visualisation
