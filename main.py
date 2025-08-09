@@ -1,6 +1,5 @@
 from functions import *
-
-#Please input initial conditions and parameters for the simulation below.
+import matplotlib.pyplot as plt
 
 #Simulation parameters (to be replaced with galaxy setup)
 N_particles = 500
@@ -9,13 +8,13 @@ grid_size = 64                        # Taxing
 box_size = 4.0
 dt = 0.01
 steps = 500
-interpolation_method = 'CIC'          # NGP/CIC
+CIC_interpolation = True              # NGP/CIC
 
 #Resolution settings (to be added)
 
 #Configure logging
 import logging as log
-log_level = 'INFO'  # 'DEBUG' 'INFO', 'ERROR'
+log_level = 'INFO'  # 'DEBUG', 'INFO', 'ERROR'
 log.basicConfig(level=getattr(log, log_level), format='[%(levelname)s] %(message)s')    # Formatting
 log.getLogger('matplotlib').setLevel(log.ERROR)                                         # Silence Matplotlib
 
@@ -27,33 +26,32 @@ start_time = time.time()
 # Initialize particle positions and (zero) velocities
 centre = box_size / 2
 spread = box_size / 16  # Smaller = more concentrated
-positions = np.random.normal(loc=centre, scale=spread, size=(N_particles, 3))
-velocities = np.zeros((N_particles, 3))
-masses = np.ones(N_particles)
+positions = np.random.normal(loc=centre, scale=spread, size=(N_particles, 3)).astype(np.float32)
+velocities = np.zeros((N_particles, 3), dtype=np.float32)
+masses = np.ones(N_particles, dtype=np.float32)
 masses[0] = tracer_mass
 
 # Collect positions for visualization
 trajectory = []
 energies = []
 
+#Interpolation method
+density_func = CIC if CIC_interpolation == True else NGP
+force_func = force_CIC if CIC_interpolation == True else NGP
+
 #Main loop
 for step in range(steps):
-
-    #Interpolation method choice from config. Change within function later
-    if interpolation_method == 'NGP':
-        density = NGP(positions, grid_size, box_size, masses)
-    elif interpolation_method == 'CIC':
-        density = CIC(positions, grid_size, box_size, masses)
-    else:
-        raise ValueError(f"Unknown interpolation method: {interpolation_method}")
-
     #Process info every 100th step
     if step % 100 == 0:
         log.info(f"Step {step}: Computing trajectories...")
 
-    #Calculating potential and forces
+    #Calculating density and potential
+    density = density_func(positions, grid_size, box_size, masses)
     potential = compute_potential(density, grid_size)
-    forces = force(potential, positions, grid_size, box_size, interpolation_method)
+
+    #Calculating forces (np.gradient outside the function to allow njit)
+    potential_gradient = np.gradient(potential)
+    forces = force_func(potential_gradient, positions, grid_size, box_size)
 
     #Updating particle kinematics
     velocities += forces * dt
@@ -81,6 +79,7 @@ plt.legend()
 plt.show()
 
 #Visualisation (Matplotlib_vis / Pyvista_mp4 / Pyvista_3D)
+print("Initializing visualization...")
 pyvista_mp4(trajectory, box_size)
 
 print('Simulation and visualization complete!')
