@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import json
-from typing import Any, Literal
 
 # Random generator
 def _default_rng(seed=None):
@@ -115,20 +114,6 @@ def generate_disk_importance_mass(N, M_tot, Rd, z0, Rmax=None, zmax=None, max_ma
         "max_mass_ratio": float(max_mass_ratio) if max_mass_ratio else None,
     }
     return pos, vel, mass, meta
-
-#Generator Mapping (morphology, sampling)
-generators: dict[tuple[str, str]] = {
-    ("disk", "Equal-mass"): generate_disk_equal_mass,
-    ("disk", "Importance"): generate_disk_importance_mass
-}
-
-# Galaxy type
-def generate_galaxy(
-        morphology: Literal["disk"],
-        sampling: Literal["Equal-mass", "Importance"],
-        **kwargs: Any
-):
-    pass
 
 def save_galaxy_npz(path, positions, masses, velocities=None, meta=None):
     """

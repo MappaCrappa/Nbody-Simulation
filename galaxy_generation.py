@@ -1,11 +1,17 @@
 from galaxy_generation_functions import *
+from galaxy_classes import *
 
-# Galaxy parameters
+# Define your galaxy with generate_galaxy()
+    #generate_galaxy("disk")
+
+#Temp params
 galaxy_type: str    = "disk"    # Type of galaxy
+#sampling: str      = "equal"   # Particle mass samplings: "equal" or "importance"
+seed: int           = 42        # Seed for reproducibility
+
 N: int              = 10000     # Number of Particles
 M_tot: float        = 1.0       # Total mass
-Rd, z0 = 1.0, 0.1
-seed: int           = 42        # Seed for reproducability
+(Rd, z0) = 1.0, 0.1
 
 # Equal-mass sampling from the target density
 pos, vel, mass, meta = generate_disk_equal_mass(N, M_tot, Rd, z0, seed=seed)
