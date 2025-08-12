@@ -1,20 +1,18 @@
 from galaxy_generation_functions import *
-from galaxy_classes import *
 
 # Define your galaxy with generate_galaxy()
-    #generate_galaxy("disk")
+generate_galaxy("disk", "equal", 10000, 1, 1, seed=42)
 
+"""
 #Temp params
 galaxy_type: str    = "disk"    # Type of galaxy
-#sampling: str      = "equal"   # Particle mass samplings: "equal" or "importance"
 seed: int           = 42        # Seed for reproducibility
 
 N: int              = 10000     # Number of Particles
 M_tot: float        = 1.0       # Total mass
-(Rd, z0) = 1.0, 0.1
 
 # Equal-mass sampling from the target density
-pos, vel, mass, meta = generate_disk_equal_mass(N, M_tot, Rd, z0, seed=seed)
+pos, vel, mass, meta = generate_disk_equal_mass(N, M_tot, Rd, z0, seed=42)
 save_galaxy_npz("Outputs/disk_equal_mass.npz", pos, mass, vel, meta)
 view_configuration(pos, mass, title="Equal-mass sampling")
 
@@ -23,7 +21,7 @@ view_configuration(pos, mass, title="Equal-mass sampling")
 pos2, vel2, mass2, meta2 = generate_disk_importance_mass(N, M_tot, Rd, z0, max_mass_ratio=10, seed=seed)
 save_galaxy_npz("Outputs/disk_importance_mass.npz", pos2, mass2, vel2, meta2)
 view_configuration(pos2, mass2, title="Importance sampling")
-
+"""
 """
 galaxy = generate_galaxy(
     "disk",

@@ -30,11 +30,10 @@ def generate_disk_equal_mass(
     Optional truncation with Rmax, zmax via rejection.
     Returns positions (N,3), velocities (N,3 zeros), masses (N)
     """
-    if M_tot is None: M_tot = N_particles
-
     rng = _default_rng(seed)
     if Rmax is None: Rmax = 5.0 * Rd
     if zmax is None: zmax = 5.0 * z0
+    if M_tot is None: M_tot = N_particles
 
     R = []
     # Rejection for truncated R
@@ -71,9 +70,9 @@ def generate_disk_equal_mass(
         "zmax": float(zmax),
         "sampling": "target_density_equal_mass",
     }
-    return pos, vel, mass, meta
+    return pos, vel, mass
 
-def generate_disk_importance_mass(N_particles, M_tot, Rd, z0, Rmax=None, zmax=None, max_mass_ratio=None, seed=None):
+def generate_disk_importance_mass(N_particles, Rd, z0, M_tot: float = None, Rmax=None, zmax=None, max_mass_ratio=None, seed=None):
     """
     Importance sampling with variable particle masses:
       - Sample particles approximately uniformly in a bounding cylinder.
@@ -89,6 +88,7 @@ def generate_disk_importance_mass(N_particles, M_tot, Rd, z0, Rmax=None, zmax=No
     rng = _default_rng(seed)
     if Rmax is None: Rmax = 5.0 * Rd
     if zmax is None: zmax = 5.0 * z0
+    if M_tot is None: M_tot = N_particles
 
     # Uniform-in-volume cylinder sampling:
     # R pdf ∝ R on [0, Rmax] => R = Rmax * sqrt(u)
@@ -125,7 +125,37 @@ def generate_disk_importance_mass(N_particles, M_tot, Rd, z0, Rmax=None, zmax=No
         "sampling": "uniform_cylinder_positions_mass∝density",
         "max_mass_ratio": float(max_mass_ratio) if max_mass_ratio else None,
     }
-    return pos, vel, mass, meta
+    return pos, vel, mass
+
+def save_galaxy_npz(path, positions, masses, velocities=None):
+    """
+    Save a configuration you can reload later.
+    path: e.g., "disk_config.npz"
+    Arrays are stored as float64; meta is stored as a JSON string.
+    """
+    if velocities is None:
+        velocities = np.zeros_like(positions)
+    np.savez(file=path, pos=positions, vel=velocities, mass=masses)
+
+def view_configuration(positions, masses=None, title=None):
+    xy = positions[:, :2]
+    if masses is not None:
+        s = 5.0 * (masses / (masses.mean() + 1e-12))
+        s = np.maximum(2.0, np.minimum(20.0, s))
+    else:
+        s = 4.0
+    plt.figure(figsize=(5, 5))
+    plt.scatter(xy[:, 0], xy[:, 1], s=s, c='k', alpha=0.5, linewidths=0)
+    ax = plt.gca()
+    ax.set_aspect('equal', 'box')
+    xr = xy[:, 0].max() - xy[:, 0].min()
+    yr = xy[:, 1].max() - xy[:, 1].min()
+    pad = 1e-9 + 0.05 * max(xr, yr)
+    ax.set_xlim(xy[:, 0].min() - pad, xy[:, 0].max() + pad)
+    ax.set_ylim(xy[:, 1].min() - pad, xy[:, 1].max() + pad)
+    ax.set_xlabel('x'); ax.set_ylabel('y')
+    if title: ax.set_title(title)
+    plt.tight_layout(); plt.show()
 
 @overload
 def generate_galaxy(
@@ -150,44 +180,12 @@ def generate_galaxy(
 ):
     if morphology == "disk":
         if sampling == "equal":
-            return generate_disk_equal_mass(N_particles, Rd, z0, M_tot, seed)
+            positions, velocities, masses= generate_disk_equal_mass(N_particles, Rd, z0, M_tot, seed)
         elif sampling == "importance":
-            return generate_disk_importance_mass(N_particles, Rd, z0, M_tot, seed)
+            positions, velocities, masses= generate_disk_importance_mass(N_particles, Rd, z0, M_tot, seed)
         else:
             raise ValueError(f"Unknown sampling: {sampling!r}")
-    raise ValueError(f"Unknown morphology: {morphology!r}")
-
-generate_galaxy("disk", "equal", 10000, 1, 1, seed=42)
-
-def save_galaxy_npz(morphology, sampling, seed, path, positions, masses, velocities=None, meta=None):
-    """
-    Save a configuration you can reload later.
-    path: e.g., "disk_config.npz"
-    Arrays are stored as float64; meta is stored as a JSON string.
-    """
-    if velocities is None:
-        velocities = np.zeros_like(positions)
-    info = json.dumps(meta or {}, separators=(",", ":"))
-    np.savez(file = str(morphology + "_" + sampling + "_" + seed), path=path, pos=positions, vel=velocities, mass=masses, meta=np.array(info))
-
-def view_configuration(positions, masses=None, title=None):
-    xy = positions[:, :2]
-    if masses is not None:
-        s = 5.0 * (masses / (masses.mean() + 1e-12))
-        s = np.maximum(2.0, np.minimum(20.0, s))
     else:
-        s = 4.0
-    plt.figure(figsize=(5, 5))
-    plt.scatter(xy[:, 0], xy[:, 1], s=s, c='k', alpha=0.5, linewidths=0)
-    ax = plt.gca()
-    ax.set_aspect('equal', 'box')
-    xr = xy[:, 0].max() - xy[:, 0].min()
-    yr = xy[:, 1].max() - xy[:, 1].min()
-    pad = 1e-9 + 0.05 * max(xr, yr)
-    ax.set_xlim(xy[:, 0].min() - pad, xy[:, 0].max() + pad)
-    ax.set_ylim(xy[:, 1].min() - pad, xy[:, 1].max() + pad)
-    ax.set_xlabel('x'); ax.set_ylabel('y')
-    if title: ax.set_title(title)
-    plt.tight_layout(); plt.show()
-
-
+        raise ValueError(f"Unknown morphology: {morphology!r}")
+    save_galaxy_npz(f"Outputs/{morphology}_{sampling}_{seed}.npz", positions, velocities, masses)
+    view_configuration(positions, masses, title=morphology+"-mass sampling")
