@@ -2,10 +2,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from typing import Literal, overload
 
-# Random generator
-def _default_rng(seed=None):
-    return np.random.default_rng(seed)
-
 #Unnormalised 3D disk density shape: exp(-R/Rd) * exp(-|z|/z0)
 def _exp_disk_weight(R, z, Rd, z0):
     return np.exp(-R / Rd) * np.exp(-np.abs(z) / z0)
@@ -28,10 +24,9 @@ def generate_disk_equal_mass(
     Optional truncation with Rmax, zmax via rejection.
     Returns positions (N,3), velocities (N,3 zeros), masses (N)
     """
-    rng = _default_rng(seed)
+    rng = np.random.default_rng(seed)
     if Rmax is None: Rmax = 5.0 * Rd
     if zmax is None: zmax = 5.0 * z0
-    #if M_tot is None: M_tot = N_particles
 
     R = []
     # Rejection for truncated R
@@ -61,7 +56,16 @@ def generate_disk_equal_mass(
 
     return pos, vel, mass
 
-def generate_disk_importance_mass(N_particles, Rd, z0, M_tot: float = 1.0, Rmax=None, zmax=None, max_mass_ratio=None, seed=None):
+def generate_disk_importance_mass(
+        N_particles: int,
+        Rd: float,
+        z0: float,
+        M_tot: float = 1.0,
+        Rmax=None,
+        zmax=None,
+        max_mass_ratio=None,
+        seed=None
+):
     """
     Importance sampling with variable particle masses:
       - Sample particles approximately uniformly in a bounding cylinder.
@@ -74,10 +78,9 @@ def generate_disk_importance_mass(N_particles, Rd, z0, M_tot: float = 1.0, Rmax=
 
     Returns positions (N,3), velocities (N,3 zeros), masses (N)
     """
-    rng = _default_rng(seed)
+    rng = np.random.default_rng(seed)
     if Rmax is None: Rmax = 5.0 * Rd
     if zmax is None: zmax = 5.0 * z0
-    #if M_tot is None: M_tot = 1
 
     # Uniform-in-volume cylinder sampling:
     # R pdf ∝ R on [0, Rmax] => R = Rmax * sqrt(u)
@@ -149,14 +152,16 @@ def generate_galaxy(
 
 def generate_galaxy(
         morphology: Literal["disk"],
-        sampling: Literal["equal", "importance"],
-        N_particles: int,
+        sampling: Literal["equal", "importance"] = "importance",
+        N_particles: int = 10000,
         Rd: float | None = None,
         z0: float | None = None,
-        M_tot: float = 1.0,
+        M_tot: float | None = 1.0,
         seed: int | None = None,
 ):
     if morphology == "disk":
+        if Rd is None: Rd = 10.0
+        if z0 is None: z0 = 0.1
         if sampling == "equal":
             positions, velocities, masses= generate_disk_equal_mass(N_particles, Rd, z0, M_tot, seed)
         elif sampling == "importance":
@@ -165,5 +170,5 @@ def generate_galaxy(
             raise ValueError(f"Unknown sampling: {sampling!r}")
     else:
         raise ValueError(f"Unknown morphology: {morphology!r}")
-    save_galaxy_npz(f"Outputs/{morphology}_{sampling}_{seed}.npz", positions, velocities, masses)
+    save_galaxy_npz(f"Outputs/{morphology}_{sampling}_{seed}.npz", positions, masses, velocities)
     view_configuration(positions, masses, title=sampling+"-mass sampling")
