@@ -2,10 +2,9 @@ from functions import *
 import matplotlib.pyplot as plt
 
 #Simulation parameters (to be replaced with galaxy setup)
-N_particles = 500
-tracer_mass = 5                       # Tracer particle mass
+#tracer_mass = 5                      # Tracer particle mass
 grid_size = 64                        # Taxing
-box_size = 40.0
+box_size = 80.0
 dt = 0.01
 steps = 500
 CIC_interpolation = True              # NGP/CIC
@@ -23,15 +22,25 @@ log.getLogger('matplotlib').setLevel(log.ERROR)                                 
 #Track Time
 start_time = time.time()
 
-# Initialize particle positions and (zero) velocities
-centre = box_size / 2
+# Initialise particle positions and (zero) velocities
+# Add a function that chooses the galaxy to import with optional second galaxy and then the separation
+galaxy_data = np.load('Outputs/ellipse_importance_1052.npz')
+positions = galaxy_data['pos'].astype(np.float32)
+velocities = galaxy_data['vel'].astype(np.float32)
+masses = galaxy_data['mass'].astype(np.float32)
+
+#Centre the galaxy
+positions += 0.5 * np.asarray(box_size, dtype=float) - positions.mean(axis=0)
+
+
+"""centre = box_size / 2
 spread = box_size / 16  # Smaller = more concentrated
 positions = np.random.normal(loc=centre, scale=spread, size=(N_particles, 3)).astype(np.float32)
 velocities = np.zeros((N_particles, 3), dtype=np.float32)
 masses = np.ones(N_particles, dtype=np.float32)
-masses[0] = tracer_mass
+#masses[0] = tracer_mass"""
 
-# Collect positions and energy for visualization
+# Collect positions and energy for visualisation
 trajectory = []
 energies = []
 
