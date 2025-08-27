@@ -2,20 +2,73 @@ import numpy as np
 import matplotlib.pyplot as plt
 from typing import Literal, overload
 
+from numpy import ndarray
+
+
 #Unnormalised 3D disk density shape: exp(-R/Rd) * exp(-|z|/z0)
 def _exp_disk_weight(R, z, Rd, z0):
     return np.exp(-R / Rd) * np.exp(-np.abs(z) / z0)
 
+
+def virial_velocities(positions, masses, morphology, G=1.0):
+    """
+    Initialize velocities using the virial theorem with morphology-dependent anisotropy
+
+    Parameters:
+    positions: array of particle positions
+    masses: array of particle masses
+    morphology: 'disk' or 'ellipse'
+    G: gravitational constant
+
+    Returns: array of particle velocities
+    """
+    N = len(positions)
+    velocities = np.zeros_like(positions)
+
+    # Set anisotropy parameter based on galaxy type
+    # β = 1 - (σ_t^2 / 2σ_r^2), where σ_t and σ_r are tangential and radial dispersions
+    beta = 0.0 if morphology == "ellipse" else -0.8  # More negative = more rotation
+
+    # Calculate system properties
+    com = np.average(positions, weights=masses, axis=0)
+    positions_rel = positions - com
+
+    for i in range(N):
+        r = positions_rel[i]
+        r_mag = np.linalg.norm(r)
+
+        if r_mag > 0:
+            # Calculate local velocity dispersion from virial theorem
+            enclosed_mass = sum(masses[np.linalg.norm(positions_rel, axis=1) < r_mag])
+            v_disp = np.sqrt(G * enclosed_mass / r_mag)
+
+            # Split between radial and tangential components based on β
+            v_r = v_disp * np.sqrt((1 - beta) / 3)  # Radial component
+            v_t = v_disp * np.sqrt((2 * (1 + beta)) / 3)  # Tangential component
+
+            # Create orthogonal vectors
+            if morphology == "disk":
+                # For disks, rotation primarily in x-y plane
+                z_dir = np.array([0, 0, 1])
+                t_dir = np.cross(r, z_dir)
+            else:
+                # For ellipticals, random orientation
+                t_dir = np.cross(r, np.random.randn(3))
+
+            if np.any(t_dir):
+                t_dir = t_dir / np.linalg.norm(t_dir)
+                r_dir = r / r_mag
+
+                # Combine radial and tangential components
+                velocities[i] = (v_r * np.random.normal(0, 1) * r_dir +
+                                 v_t * t_dir)
+
+    # Remove bulk motion
+    return velocities - np.average(velocities, weights=masses, axis=0)
+
+
 #Equal mass disk sampling
-def generate_disk_equal_mass(
-    N_particles: int,
-    Rd: float,
-    z0: float,
-    M_tot: float = 1.0,
-    Rmax: float = None,
-    zmax: float = None,
-    seed: int = None
-):
+def generate_disk_equal_mass(N_particles: int, Rd: float, z0: float, M_tot: float = 1.0, Rmax: float = None, zmax: float = None, seed: int = None):
     """
     Equal-mass sampling directly from an exponential disk:
       ρ(R, z) ∝ exp(-R/Rd) * exp(-|z|/z0)
@@ -31,7 +84,7 @@ def generate_disk_equal_mass(
     R = []
     # Rejection for truncated R
     while len(R) < N_particles:
-        # Draw in chunks
+        # Draw in chunks of candidate R from Gamma(k=2, θ=Rd)
         chunk = rng.gamma(shape=2.0, scale=Rd, size=max(4*(N_particles-len(R)), 1024))
         chunk = chunk[chunk <= Rmax]
         R.extend(chunk.tolist())
@@ -56,16 +109,7 @@ def generate_disk_equal_mass(
 
     return pos, vel, mass
 
-def generate_disk_importance_mass(
-        N_particles: int,
-        Rd: float,
-        z0: float,
-        M_tot: float = 1.0,
-        Rmax=None,
-        zmax=None,
-        max_mass_ratio=None,
-        seed=None
-):
+def generate_disk_importance_mass(N_particles: int, Rd: float, z0: float, M_tot: float = 1.0, Rmax: float = None, zmax: float = None, max_mass_ratio: float = None, seed: int = None):
     """
     Importance sampling with variable particle masses:
       - Sample particles approximately uniformly in a bounding cylinder.
@@ -108,6 +152,52 @@ def generate_disk_importance_mass(
     vel = np.zeros_like(pos)
     return pos, vel, mass
 
+def generate_ellipse_importance(
+    N_particles: int,
+    a: float,
+    b: float,
+    c: float,
+    M_tot: float = 1.0,
+    seed: int | None = None,
+):
+    """
+    Ellipsoidal galaxy generator using importance sampling.
+    Target density (unnormalized): rho(m) ∝ exp(-m),
+    with m^2 = (x/a)^2 + (y/b)^2 + (z/c)^2.
+
+    Proposal: Anisotropic Gaussian N(0, diag([a^2, b^2, c^2])).
+    Weights: w ∝ p(x) / q_unnorm(x); normalized so masses sum to M_tot.
+
+    Returns a dict with:
+      - "pos": (N, 3) positions
+      - "mass": (N,) masses summing to M_tot
+    """
+    rng = np.random.default_rng(seed)
+
+    # Sample from the proposal aligned with the ellipsoid axes
+    sigmas = np.array([a, b, c], dtype=np.float64)
+    pos = rng.normal(0.0, sigmas, size=(N_particles, 3)).astype(np.float64, copy=False)
+
+    # Ellipsoidal radius m and m^2
+    inv_axes_sq = np.array([1.0/(a*a), 1.0/(b*b), 1.0/(c*c)], dtype=np.float64)
+    m2 = np.einsum("ij,j,ij->i", pos, inv_axes_sq, pos)
+    m = np.sqrt(m2)
+
+    # Target and proposal (unnormalized) log-densities
+    log_p = -m                    # log p ∝ -m (gradual)
+    log_q_unnorm = -0.5 * m2      # since q ∝ exp(-0.5 * sum((x_i/sigma_i)^2)) and sigmas=[a,b,c]
+
+    # Importance weights (stable)
+    log_w = log_q_unnorm - log_p
+    log_w -= np.max(log_w)
+    w = np.exp(log_w)
+    w /= np.sum(w)
+
+    mass = M_tot * w
+
+    vel = np.zeros_like(pos)
+    return pos, vel, mass
+
 def save_galaxy_npz(path, positions, masses, velocities=None):
     """
     Save a configuration you can reload later.
@@ -118,13 +208,9 @@ def save_galaxy_npz(path, positions, masses, velocities=None):
         velocities = np.zeros_like(positions)
     np.savez(file=path, pos=positions, vel=velocities, mass=masses)
 
-def view_configuration(positions, masses=None, title=None):
+def view_configuration(positions, masses, title=None):
     xy = positions[:, :2]
-    if masses is not None:
-        s = 5.0 * (masses / (masses.mean() + 1e-12))
-        s = np.maximum(2.0, np.minimum(20.0, s))
-    else:
-        s = 4.0
+    s = np.log10(masses/np.min(masses))  # Ratio scaling
     plt.figure(figsize=(5, 5))
     plt.scatter(xy[:, 0], xy[:, 1], s=s, c='k', alpha=0.5, linewidths=0)
     ax = plt.gca()
@@ -136,26 +222,45 @@ def view_configuration(positions, masses=None, title=None):
     ax.set_ylim(xy[:, 1].min() - pad, xy[:, 1].max() + pad)
     ax.set_xlabel('x'); ax.set_ylabel('y')
     if title: ax.set_title(title)
+    plt.savefig(f"Outputs/{title}.png")
     plt.tight_layout(); plt.show()
 
+#Disk Overload
 @overload
 def generate_galaxy(
     morphology: Literal["disk"],
-    sampling: Literal["equal", "importance"],
-    N_particles: int,
-    Rd: float,
-    z0: float,
+    sampling: Literal["equal", "importance"] = "importance",
+    N_particles: int = 10000,
+    Rd: float = None,
+    z0: float = None,
     M_tot: float = 1.0,
     seed: int = None,
-) -> generate_disk_equal_mass or generate_disk_importance_mass:
+) -> ndarray:
+    pass
+
+#Ellipse Overload
+@overload
+def generate_galaxy(
+    morphology: Literal["ellipse"],
+    sampling: Literal["importance"] = "importance",
+    N_particles: int = 10000,
+    a: float = 1.0,
+    b: float = 1.0,
+    c: float = 1.0,
+    M_tot: float = 1.0,
+    seed: int = None
+) -> ndarray:
     pass
 
 def generate_galaxy(
-        morphology: Literal["disk"],
+        morphology: Literal["disk", "ellipse"],
         sampling: Literal["equal", "importance"] = "importance",
         N_particles: int = 10000,
         Rd: float | None = None,
         z0: float | None = None,
+        a: float | None = None,
+        b: float | None = None,
+        c: float | None = None,
         M_tot: float | None = 1.0,
         seed: int | None = None,
 ):
@@ -163,12 +268,14 @@ def generate_galaxy(
         if Rd is None: Rd = 10.0
         if z0 is None: z0 = 0.1
         if sampling == "equal":
-            positions, velocities, masses= generate_disk_equal_mass(N_particles, Rd, z0, M_tot, seed)
+            positions, velocities, masses = generate_disk_equal_mass(N_particles, Rd, z0, M_tot, seed)
         elif sampling == "importance":
-            positions, velocities, masses= generate_disk_importance_mass(N_particles, Rd, z0, M_tot, seed)
+            positions, velocities, masses = generate_disk_importance_mass(N_particles, Rd, z0, M_tot, seed)
         else:
             raise ValueError(f"Unknown sampling: {sampling!r}")
+    elif morphology == "ellipse":
+            positions, velocities, masses = generate_ellipse_importance(N_particles, a, b, c, M_tot, seed)
     else:
         raise ValueError(f"Unknown morphology: {morphology!r}")
     save_galaxy_npz(f"Outputs/{morphology}_{sampling}_{seed}.npz", positions, masses, velocities)
-    view_configuration(positions, masses, title=sampling+"-mass sampling")
+    view_configuration(positions, masses, title=f"{morphology}_{sampling}_{seed}")
