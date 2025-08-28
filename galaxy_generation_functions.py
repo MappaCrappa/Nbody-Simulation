@@ -237,6 +237,7 @@ def generate_diffuse_sphere(N: int, R: float = 10.0, M_tot: float = 1.0, seed: i
     # Remove tiny bulk drifts
     positions -= np.average(positions, weights=masses, axis=0)
     velocities -= np.average(velocities, weights=masses, axis=0)
+
     return positions, velocities, masses
 
 
@@ -252,7 +253,8 @@ def save_galaxy_npz(path, positions, masses, velocities=None):
 
 def view_configuration(positions, masses, title=None):
     xy = positions[:, :2]
-    s = np.log10(masses/np.min(masses))  # Ratio scaling
+    s = 4
+    #s = np.log10(masses/np.min(masses))  # Ratio scaling
     plt.figure(figsize=(5, 5))
     plt.scatter(xy[:, 0], xy[:, 1], s=s, c='k', alpha=0.5, linewidths=0)
     ax = plt.gca()
