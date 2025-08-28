@@ -2,70 +2,91 @@ import numpy as np
 import matplotlib.pyplot as plt
 from typing import Literal, overload
 
-from numpy import ndarray
-
-
-#Unnormalised 3D disk density shape: exp(-R/Rd) * exp(-|z|/z0)
-def _exp_disk_weight(R, z, Rd, z0):
-    return np.exp(-R / Rd) * np.exp(-np.abs(z) / z0)
-
-
-def virial_velocities(positions, masses, morphology, G=1.0):
+def virial_ellipsoid(pos, mass, a, b, c, G = 1.0, seed=None,
+    disp: float = 0.1,             # fraction of v_c used as in-plane dispersion
+    spin_axis: tuple[float, float, float] | None = None,  # preferred global spin axis; None -> z
+):
     """
-    Initialize velocities using the virial theorem with morphology-dependent anisotropy
+    Initialize velocities for an ellipsoidal configuration with tangential support.
 
-    Parameters:
-    positions: array of particle positions
-    masses: array of particle masses
-    morphology: 'disk' or 'ellipse'
-    G: gravitational constant
+    - Uses ellipsoidal shells defined by (x/a)^2 + (y/b)^2 + (z/c)^2 = const.
+    - Mean speed set to v_c(r_eff) = sqrt(G * M_enc / r_eff) where r_eff ≈ m * (abc)^(1/3).
+    - Velocities lie in the tangent plane (no radial component). Optional in-plane dispersion.
+    - Finally rescales K so that sum m |v|^2 ≈ sum m v_c^2, similar to the original code.
 
-    Returns: array of particle velocities
+    This avoids strong initial in-fall by eliminating radial motion at t = 0.
     """
-    N = len(positions)
-    velocities = np.zeros_like(positions)
 
-    # Set anisotropy parameter based on galaxy type
-    # β = 1 - (σ_t^2 / 2σ_r^2), where σ_t and σ_r are tangential and radial dispersions
-    beta = 0.0 if morphology == "ellipse" else -0.8  # More negative = more rotation
+    rng = np.random.default_rng(seed)
+    eps = 1e-12 # for avoiding division by 0
 
-    # Calculate system properties
-    com = np.average(positions, weights=masses, axis=0)
-    positions_rel = positions - com
+    # Center positions at centre of mass
+    x = pos - np.average(pos, weights=mass, axis=0)
 
-    for i in range(N):
-        r = positions_rel[i]
-        r_mag = np.linalg.norm(r)
+    # Ellipsoidal radius m and volume-equivalent spherical radius r_eff
+    inv2 = np.array([1.0 / (a * a), 1.0 / (b * b), 1.0 / (c * c)], dtype=float)
+    m = np.sqrt(np.maximum((x * x * inv2).sum(axis=1), eps))
+    r = np.maximum(m * (abs(a * b * c)) ** (1.0/3.0), eps)  # r_eff
 
-        if r_mag > 0:
-            # Calculate local velocity dispersion from virial theorem
-            enclosed_mass = sum(masses[np.linalg.norm(positions_rel, axis=1) < r_mag])
-            v_disp = np.sqrt(G * enclosed_mass / r_mag)
+    # Enclosed mass M_enc(r): cumulative sum over particles sorted by r
+    order = np.argsort(r)
+    Menc = np.empty_like(r)
+    Menc[order] = np.cumsum(mass[order])
 
-            # Split between radial and tangential components based on β
-            v_r = v_disp * np.sqrt((1 - beta) / 3)  # Radial component
-            v_t = v_disp * np.sqrt((2 * (1 + beta)) / 3)  # Tangential component
+    # Circular speed (spherical approximation on r_eff)
+    v_c = np.sqrt(G * Menc / r)
 
-            # Create orthogonal vectors
-            if morphology == "disk":
-                # For disks, rotation primarily in x-y plane
-                z_dir = np.array([0, 0, 1])
-                t_dir = np.cross(r, z_dir)
-            else:
-                # For ellipticals, random orientation
-                t_dir = np.cross(r, np.random.randn(3))
+    # Ellipsoidal outward normal (gradient of m)
+    n = x * inv2  # proportional to grad(m)
+    n /= (np.linalg.norm(n, axis=1, keepdims=True) + eps)  # unit "radial" vector on the shell
 
-            if np.any(t_dir):
-                t_dir = t_dir / np.linalg.norm(t_dir)
-                r_dir = r / r_mag
+    # Choose a global spin axis (default: z / c-axis). We'll build a tangent basis from it.
+    if spin_axis is None:
+        k = np.array([0.0, 0.0, 1.0], dtype=float)
+    else:
+        k = np.array(spin_axis, dtype=float)
+    k /= (np.linalg.norm(k) + eps)
+    k = np.broadcast_to(k, x.shape)
 
-                # Combine radial and tangential components
-                velocities[i] = (v_r * np.random.normal(0, 1) * r_dir +
-                                 v_t * t_dir)
+    # First tangent direction: perpendicular to both n and k
+    t1 = np.cross(k, n)
+    t1_norm = np.linalg.norm(t1, axis=1, keepdims=True)
 
-    # Remove bulk motion
-    return velocities - np.average(velocities, weights=masses, axis=0)
+    # Fallback where k ~ n (degenerate cross): use an alternate axis
+    bad = (t1_norm[:, 0] < 1e-8)
+    if np.any(bad):
+        alt = np.array([0.0, 1.0, 0.0], dtype=float)
+        t1_alt = np.cross(np.broadcast_to(alt, x[bad].shape), n[bad])
+        t1_alt /= (np.linalg.norm(t1_alt, axis=1, keepdims=True) + eps)
+        t1[bad] = t1_alt
+        t1_norm = np.linalg.norm(t1, axis=1, keepdims=True)
 
+    t1 /= (t1_norm + eps)
+
+    # Second tangent direction in the shell
+    t2 = np.cross(n, t1)  # already unit-length if n,t1 are orthonormal
+
+    # Mean tangential motion + in-plane (t1,t2) Gaussian dispersion
+    z1 = rng.standard_normal(len(x))
+    z2 = rng.standard_normal(len(x))
+    v = (
+        t1 * v_c[:, None]  # circular support
+        + (t1 * z1[:, None] + t2 * z2[:, None]) * (disp * v_c)[:, None]  # in-plane dispersion
+    )
+
+    # Project out any tiny radial component from numerical error
+    v -= n * (v * n).sum(axis=1, keepdims=True)
+
+    # Remove bulk drift
+    v -= np.average(v, weights=mass, axis=0)
+
+    # Rescale kinetic energy so that sum m |v|^2 ≈ sum m v_c^2 (same intent as original)
+    num = np.sum(mass * v_c * v_c)
+    den = np.sum(mass * (v * v).sum(axis=1))
+    if den > eps:
+        v *= np.sqrt(num / den)
+
+    return v
 
 #Equal mass disk sampling
 def generate_disk_equal_mass(N_particles: int, Rd: float, z0: float, M_tot: float = 1.0, Rmax: float = None, zmax: float = None, seed: int = None):
@@ -138,7 +159,7 @@ def generate_disk_importance_mass(N_particles: int, Rd: float, z0: float, M_tot:
     pos = np.column_stack([x, y, z])
 
     # Weights from target density shape
-    w = _exp_disk_weight(R, z, Rd, z0)
+    w = np.exp(-R / Rd) * np.exp(-np.abs(z) / z0)
     # Normalise to total mass
     mass = M_tot * (w / np.sum(w))
 
@@ -195,8 +216,29 @@ def generate_ellipse_importance(
 
     mass = M_tot * w
 
-    vel = np.zeros_like(pos)
+    vel = virial_ellipsoid(pos, mass, a=a, b=b, c=c, G=1.0)
     return pos, vel, mass
+
+def generate_diffuse_sphere(N: int, R: float = 10.0, M_tot: float = 1.0, seed: int | None = None):
+    rng = np.random.default_rng(seed)
+    masses = np.full(N, M_tot / N, dtype=float)
+    eps = 1e-12
+
+    # Positions: exponential radius with isotropic directions
+    r = rng.exponential(scale=R, size=N)
+    dirs = rng.normal(size=(N, 3))
+    dirs /= (np.linalg.norm(dirs, axis=1, keepdims=True) + eps)
+    positions = dirs * r[:, None]
+
+    # Velocities: simple isotropic Maxwellian (rough virial-scale) G=1
+    sigma_v = 0.6 * np.sqrt(M_tot / (R + eps))
+    velocities = rng.normal(scale=sigma_v, size=(N, 3))
+
+    # Remove tiny bulk drifts
+    positions -= np.average(positions, weights=masses, axis=0)
+    velocities -= np.average(velocities, weights=masses, axis=0)
+    return positions, velocities, masses
+
 
 def save_galaxy_npz(path, positions, masses, velocities=None):
     """
@@ -235,7 +277,7 @@ def generate_galaxy(
     z0: float = None,
     M_tot: float = 1.0,
     seed: int = None,
-) -> ndarray:
+) -> np.ndarray:
     pass
 
 #Ellipse Overload
@@ -249,14 +291,27 @@ def generate_galaxy(
     c: float = 1.0,
     M_tot: float = 1.0,
     seed: int = None
-) -> ndarray:
+) -> np.ndarray:
+    pass
+
+# Diffuse Sphere Overload
+@overload
+def generate_galaxy(
+        morphology: Literal["diffuse_sphere"],
+        sampling: Literal["importance"] = "importance",
+        N_particles: int = 10000,
+        R: float = 10.0,
+        M_tot: float = 1.0,
+        seed: int = None
+)  -> np.ndarray:
     pass
 
 def generate_galaxy(
-        morphology: Literal["disk", "ellipse"],
+        morphology: Literal["disk", "ellipse", "diffuse_sphere"],
         sampling: Literal["equal", "importance"] = "importance",
         N_particles: int = 10000,
         Rd: float | None = None,
+        R: float | None = None,
         z0: float | None = None,
         a: float | None = None,
         b: float | None = None,
@@ -275,6 +330,8 @@ def generate_galaxy(
             raise ValueError(f"Unknown sampling: {sampling!r}")
     elif morphology == "ellipse":
             positions, velocities, masses = generate_ellipse_importance(N_particles, a, b, c, M_tot, seed)
+    elif morphology == "diffuse_sphere":
+            positions, velocities, masses = generate_diffuse_sphere(N_particles, R, M_tot, seed)
     else:
         raise ValueError(f"Unknown morphology: {morphology!r}")
     save_galaxy_npz(f"Outputs/{morphology}_{sampling}_{seed}.npz", positions, masses, velocities)

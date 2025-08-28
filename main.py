@@ -2,14 +2,11 @@ from functions import *
 import matplotlib.pyplot as plt
 
 #Simulation parameters (to be replaced with galaxy setup)
-#tracer_mass = 5                      # Tracer particle mass
-grid_size = 64                        # Taxing
-box_size = 80.0
+grid_size = 128                        # Taxing
+box_size = 500.0
 dt = 0.01
-steps = 500
+steps = 1000
 CIC_interpolation = True              # NGP/CIC
-
-#Resolution settings (to be added)
 
 #Configure logging
 import logging as log
@@ -29,16 +26,14 @@ positions = galaxy_data['pos'].astype(np.float32)
 velocities = galaxy_data['vel'].astype(np.float32)
 masses = galaxy_data['mass'].astype(np.float32)
 
-#Centre the galaxy
+# Centre the galaxy
 positions += 0.5 * np.asarray(box_size, dtype=float) - positions.mean(axis=0)
-
 
 """centre = box_size / 2
 spread = box_size / 16  # Smaller = more concentrated
 positions = np.random.normal(loc=centre, scale=spread, size=(N_particles, 3)).astype(np.float32)
 velocities = np.zeros((N_particles, 3), dtype=np.float32)
-masses = np.ones(N_particles, dtype=np.float32)
-#masses[0] = tracer_mass"""
+masses = np.ones(N_particles, dtype=np.float32)"""
 
 # Collect positions and energy for visualisation
 trajectory = []

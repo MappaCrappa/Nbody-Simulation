@@ -190,7 +190,7 @@ def pyvista_mp4(trajectory: list, box_size: float, output_path: str ="Outputs/pm
 
     # Particle Populations - Render_points_as_spheres = True has a bug on AMD GPUs on Windows where it produces no output -> Set to False
     cloud = pv.PolyData(trajectory[0])
-    plotter.add_points(cloud, color="white", point_size=2, render_points_as_spheres=False)
+    plotter.add_points(cloud, color="white", point_size=1, render_points_as_spheres=False)
 
     tracer = pv.PolyData(trajectory[0][0:1])
     plotter.add_points(tracer, color="red", point_size=5, render_points_as_spheres=False)
@@ -219,7 +219,7 @@ def pyvista_3D(trajectory, box_size, delay=20): #WIP non-functional
 
     # Particle Populations
     cloud = pv.PolyData(trajectory[0])
-    plotter.add_points(cloud, color="white", point_size=2, render_points_as_spheres=True)
+    plotter.add_points(cloud, color="white", point_size=1, render_points_as_spheres=True)
 
     tracer = pv.PolyData(trajectory[0][0:1])
     plotter.add_points(tracer, color="red", point_size=5, render_points_as_spheres=True)
