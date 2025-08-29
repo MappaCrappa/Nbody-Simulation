@@ -2,10 +2,10 @@ from functions import *
 import matplotlib.pyplot as plt
 
 #Simulation parameters (to be replaced with galaxy setup)
-grid_size = 100                        # Taxing
+grid_size = 200                        # Taxing
 box_size = 10000.0
 dt = 0.005
-steps = 1000
+steps = 10000
 CIC_interpolation = True              # NGP/CIC
 
 #Configure logging
@@ -22,25 +22,14 @@ start_time = time.time()
 # Import galaxies
 
 # Add a function that chooses the galaxy to import with optional second galaxy and then the separation
-"""galaxy_data = np.load('Outputs/ellipse_importance_1052.npz')
-positions = galaxy_data['pos'].astype(np.float32)
-velocities = galaxy_data['vel'].astype(np.float32)
-masses = galaxy_data['mass'].astype(np.float32)"""
-
-positions, velocities, masses = (
-    import_galaxy("Outputs/ellipse_importance_1052.npz",
+positions, velocities, masses = (import_galaxy(
+                  "Outputs/ellipse_importance_1052.npz",
                   "Outputs/diffuse_sphere_importance_1052.npz",
-               400.0))
-
-
-# Centre the galaxy
+                        separation = 400.0,
+                        direction = (1, 0, 0),
+                        velocity = (0, 1000, 0)))
+# Centre the simulation
 positions += 0.5 * np.asarray(box_size, dtype=float) - positions.mean(axis=0)
-
-"""centre = box_size / 2
-spread = box_size / 16  # Smaller = more concentrated
-positions = np.random.normal(loc=centre, scale=spread, size=(N_particles, 3)).astype(np.float32)
-velocities = np.zeros((N_particles, 3), dtype=np.float32)
-masses = np.ones(N_particles, dtype=np.float32)"""
 
 # Collect positions and energy for visualisation
 trajectory = []

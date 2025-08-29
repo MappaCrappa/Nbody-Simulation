@@ -198,7 +198,7 @@ def pyvista_mp4(trajectory: list, box_size: float, output_path: str ="Outputs/pm
 
     # Lock camera (saves recalculating)
     plotter.view_isometric()
-    plotter.camera.zoom(10.0)
+    plotter.camera.zoom(8.0)
 
     #Write frames
     plotter.open_movie(output_path, framerate=fps)
@@ -222,7 +222,7 @@ def pyvista_3D(trajectory, box_size, delay=20): #WIP non-functional
     plotter.add_mesh(bounds, color='gray', style='wireframe', opacity=0.25, line_width=1)
 
     # Zoom and focus
-    plotter.camera.zoom(10.0)
+    plotter.camera.zoom(8.0)
 
     def animate():
         while not plotter._closed:
@@ -259,9 +259,19 @@ def import_galaxy(path1, path2=None, separation=1.0, direction=(1, 0, 0), veloci
     target_com2 = com1 + d * float(separation)
     positions2 = positions2 + (target_com2 - com2)
 
-    # set galaxy 2 bulk velocity so that v2_com - v1_com = v_rel (same units as input velocities)
-    #dv = (u1 + np.asarray(v_rel, float)) - u2
-    #v2 = v2 + dv
+    # Add velocity whilst ensuring zero total momentum (avoid drift)
+    M1 = np.sum(masses1)
+    M2 = np.sum(masses2)
+
+    V1 = -(M2/(M1+M2))*np.asarray(velocity)
+    V2 = (M1/(M1+M2))*np.asarray(velocity)
+
+    print(V1, V2)
+
+    velocities1 = velocities1 + np.asarray(V1)
+    velocities2 = velocities2 + np.asarray(V2)
+
+    #velocities2 = velocities2 + np.asarray(velocity)
 
     # combine and return like a simple import
     positions = np.vstack((positions1, positions2))
