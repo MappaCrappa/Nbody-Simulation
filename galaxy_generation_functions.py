@@ -219,24 +219,110 @@ def generate_ellipse_importance(
     vel = virial_ellipsoid(pos, mass, a=a, b=b, c=c, G=1.0)
     return pos, vel, mass
 
-def generate_diffuse_sphere(N: int, R: float = 10.0, M_tot: float = 1.0, seed: int | None = None):
+def generate_diffuse_sphere(N_particles: int, R: float = 10.0, M_tot: float = 1.0, seed: int | None = None):
     rng = np.random.default_rng(seed)
-    masses = np.full(N, M_tot / N, dtype=float)
+    masses = np.full(N_particles, M_tot / N_particles, dtype=float)
     eps = 1e-12
 
     # Positions: exponential radius with isotropic directions
-    r = rng.exponential(scale=R, size=N)
-    dirs = rng.normal(size=(N, 3))
+    r = rng.exponential(scale=R, size=N_particles)
+    dirs = rng.normal(size=(N_particles, 3))
     dirs /= (np.linalg.norm(dirs, axis=1, keepdims=True) + eps)
     positions = dirs * r[:, None]
 
     # Velocities: simple isotropic Maxwellian (rough virial-scale) G=1
     sigma_v = 0.6 * np.sqrt(M_tot / (R + eps))
-    velocities = rng.normal(scale=sigma_v, size=(N, 3))
+    velocities = rng.normal(scale=sigma_v, size=(N_particles, 3))
 
     # Remove tiny bulk drifts
     positions -= np.average(positions, weights=masses, axis=0)
     velocities -= np.average(velocities, weights=masses, axis=0)
+
+    return positions, velocities, masses
+
+def generate_diffuse_sphere_importance(N_particles, R, M_tot, seed=None):
+    """
+     Inputs:
+       - N_particles: number of particles
+       - R: Plummer scale length 'a'
+       - M_tot: total mass
+       - seed: RNG seed
+
+     Outputs:
+       - positions: (N, 3) ndarray
+       - velocities: (N, 3) ndarray (purely tangential)
+       - masses: (N,) ndarray
+
+     Notes:
+       - Positions are drawn from a 3D normal proposal q(x) ~ N(0, a^2 I).
+       - Masses use importance sampling to approximate a Plummer density:
+           ρ_plummer(r) ∝ (1 + (r/a)^2)^(-5/2)
+           w_i ∝ ρ_plummer(r_i) / q(x_i)
+         Masses are normalized to sum to M_tot.
+       - Velocities are set to circular speeds v = sqrt(M_enc(r)/r) with tangential directions.
+         M_enc(r) is computed from the cumulative sum of the discrete masses.
+       - G = 1 is assumed.
+     """
+    rng = np.random.default_rng(seed)
+    N = int(N_particles)
+    a = float(R)
+
+    # 1) Positions: 3D normal proposal q(x) with std=a (simple and isotropic)
+    positions = rng.normal(scale=a, size=(N, 3)).astype(float)
+    r = np.linalg.norm(positions, axis=1)
+    x = r / (a + 0.0)
+
+    # 2) Importance weights for Plummer density vs. 3D normal proposal
+    #    Use log-weights for numerical stability; constants cancel after normalization.
+    #    ρ*(r) ∝ (1 + x^2)^(-5/2), q*(x) ∝ exp(-x^2/2)  =>  w ∝ (1 + x^2)^(-5/2) * exp(+x^2/2)
+    logw = -2.5 * np.log1p(x * x) + 0.5 * (x * x)
+    logw -= np.max(logw)
+    w = np.exp(logw)
+    masses = (M_tot * w / np.sum(w)).astype(float)
+
+    # 3) Tangential circular velocities from enclosed mass of the discrete system
+    #    - Sort by radius, build cumulative enclosed mass
+    idx = np.argsort(r)
+    r_sorted = r[idx]
+    m_sorted = masses[idx]
+    Menc_sorted = np.cumsum(m_sorted)  # includes self; simple and stable
+
+    #    - Circular speed v = sqrt(M_enc(r)/r); handle r=0 safely
+    v_sorted = np.zeros(N, dtype=float)
+    nonzero = r_sorted > 0
+    v_sorted[nonzero] = np.sqrt(Menc_sorted[nonzero] / r_sorted[nonzero])
+
+    #    - Map v back to original particle order
+    vmag = np.empty(N, dtype=float)
+    vmag[idx] = v_sorted
+
+    # 4) Build tangential unit vectors perpendicular to r-hat
+    rhat = np.zeros_like(positions)
+    safe = r > 0
+    rhat[safe] = positions[safe] / r[safe, None]
+
+    q = rng.normal(size=(N, 3))
+    tang = np.cross(rhat, q)
+    tn = np.linalg.norm(tang, axis=1)
+
+    # Fallback for near-parallel cases
+    fix = tn < 1e-12
+    if np.any(fix):
+        q[fix] = np.array([1.0, 0.0, 0.0])
+        tang[fix] = np.cross(rhat[fix], q[fix])
+        tn[fix] = np.linalg.norm(tang[fix], axis=1)
+
+    # For r=0, pick any random unit direction; speed will be zero anyway
+    if np.any(~safe):
+        rnd = rng.normal(size=((~safe).sum(), 3))
+        rnd /= np.linalg.norm(rnd, axis=1, keepdims=True)
+        tang[~safe] = rnd
+        tn[~safe] = 1.0
+
+    tang /= tn[:, None]
+
+    # 5) Final velocities: tangential direction with circular speed
+    velocities = tang * vmag[:, None]
 
     return positions, velocities, masses
 
@@ -253,8 +339,7 @@ def save_galaxy_npz(path, positions, masses, velocities=None):
 
 def view_configuration(positions, masses, title=None):
     xy = positions[:, :2]
-    s = 4
-    #s = np.log10(masses/np.min(masses))  # Ratio scaling
+    s = np.log10(masses/np.min(masses))  # Ratio scaling (Scaling error for equal masses)
     plt.figure(figsize=(5, 5))
     plt.scatter(xy[:, 0], xy[:, 1], s=s, c='k', alpha=0.5, linewidths=0)
     ax = plt.gca()
@@ -333,7 +418,7 @@ def generate_galaxy(
     elif morphology == "ellipse":
             positions, velocities, masses = generate_ellipse_importance(N_particles, a, b, c, M_tot, seed)
     elif morphology == "diffuse_sphere":
-            positions, velocities, masses = generate_diffuse_sphere(N_particles, R, M_tot, seed)
+            positions, velocities, masses = generate_diffuse_sphere_importance(N_particles, R, M_tot, seed)
     else:
         raise ValueError(f"Unknown morphology: {morphology!r}")
     save_galaxy_npz(f"Outputs/{morphology}_{sampling}_{seed}.npz", positions, masses, velocities)

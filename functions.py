@@ -192,23 +192,19 @@ def pyvista_mp4(trajectory: list, box_size: float, output_path: str ="Outputs/pm
     cloud = pv.PolyData(trajectory[0])
     plotter.add_points(cloud, color="white", point_size=1, render_points_as_spheres=False)
 
-    tracer = pv.PolyData(trajectory[0][0:1])
-    plotter.add_points(tracer, color="red", point_size=5, render_points_as_spheres=False)
-
     # Bounding Mesh
     bounds = pv.Cube(center=(box_size / 2, box_size / 2, box_size / 2), x_length=box_size, y_length=box_size, z_length=box_size)
     plotter.add_mesh(bounds, color='gray', style='wireframe', opacity=0.25, line_width=1)
 
     # Lock camera (saves recalculating)
     plotter.view_isometric()
-    plotter.camera.zoom(1.0)
+    plotter.camera.zoom(10.0)
 
     #Write frames
     plotter.open_movie(output_path, framerate=fps)
     try:
         for i in range(trajectory.shape[0]):
             cloud.points[:] = trajectory[i]          # Update all particles
-            tracer.points[0] = trajectory[i, 0]      # Update tracer (single point)
             plotter.write_frame()                    # Renders and appends the frame
     finally:
         plotter.close()
@@ -221,12 +217,12 @@ def pyvista_3D(trajectory, box_size, delay=20): #WIP non-functional
     cloud = pv.PolyData(trajectory[0])
     plotter.add_points(cloud, color="white", point_size=1, render_points_as_spheres=True)
 
-    tracer = pv.PolyData(trajectory[0][0:1])
-    plotter.add_points(tracer, color="red", point_size=5, render_points_as_spheres=True)
-
     # Bounding Mesh
     bounds = pv.Cube(center=(box_size / 2, box_size / 2, box_size / 2), x_length=box_size, y_length=box_size, z_length=box_size)
     plotter.add_mesh(bounds, color='gray', style='wireframe', opacity=0.25, line_width=1)
+
+    # Zoom and focus
+    plotter.camera.zoom(10.0)
 
     def animate():
         while not plotter._closed:
@@ -234,12 +230,45 @@ def pyvista_3D(trajectory, box_size, delay=20): #WIP non-functional
                 if plotter._closed:
                     break
                 cloud.points = frame
-                tracer.points = frame[0:1]
                 plotter.update()
                 time.sleep(delay)  # delay in ms
 
     # Run the animation in a background thread so you can rotate/zoom live!
     threading.Thread(target=animate, daemon=True).start()
+
+# Galaxy Importer
+def import_galaxy(path1, path2=None, separation=1.0, direction=(1, 0, 0), velocity=(0, 0, 0)):
+    with np.load(path1) as galaxy1_data:
+        positions1 = galaxy1_data['pos'].astype(np.float32)
+        velocities1 = galaxy1_data['vel'].astype(np.float32)
+        masses1 = galaxy1_data['mass'].astype(np.float32)
+    if path2 is None:
+        return positions1, velocities1, masses1
+
+    with np.load(path2) as galaxy2_data:
+        positions2 = galaxy2_data['pos'].astype(np.float32)
+        velocities2 = galaxy2_data['vel'].astype(np.float32)
+        masses2 = galaxy2_data['mass'].astype(np.float32)
+
+    # Centre of Mass
+    com1 = (masses1[:, None] * positions1).sum(0) / masses1.sum()
+    com2 = (masses2[:, None] * positions2).sum(0) / masses2.sum()
+
+    # Place galaxy 2 so its COM is at com1 + sep_kpc * dir (positions in kpc)
+    d = np.asarray(direction, float); d /= np.linalg.norm(d)
+    target_com2 = com1 + d * float(separation)
+    positions2 = positions2 + (target_com2 - com2)
+
+    # set galaxy 2 bulk velocity so that v2_com - v1_com = v_rel (same units as input velocities)
+    #dv = (u1 + np.asarray(v_rel, float)) - u2
+    #v2 = v2 + dv
+
+    # combine and return like a simple import
+    positions = np.vstack((positions1, positions2))
+    velocities = np.vstack((velocities1, velocities2))
+    masses   = np.concatenate((masses1, masses2))
+    return positions, velocities, masses
+
 
 #Diagnostic Functions
 def compute_kinetic_energy(velocities, masses):

@@ -2,9 +2,9 @@ from functions import *
 import matplotlib.pyplot as plt
 
 #Simulation parameters (to be replaced with galaxy setup)
-grid_size = 128                        # Taxing
-box_size = 500.0
-dt = 0.01
+grid_size = 100                        # Taxing
+box_size = 10000.0
+dt = 0.005
 steps = 1000
 CIC_interpolation = True              # NGP/CIC
 
@@ -19,12 +19,19 @@ log.getLogger('matplotlib').setLevel(log.ERROR)                                 
 #Track Time
 start_time = time.time()
 
-# Initialise particle positions and (zero) velocities
+# Import galaxies
+
 # Add a function that chooses the galaxy to import with optional second galaxy and then the separation
-galaxy_data = np.load('Outputs/ellipse_importance_1052.npz')
+"""galaxy_data = np.load('Outputs/ellipse_importance_1052.npz')
 positions = galaxy_data['pos'].astype(np.float32)
 velocities = galaxy_data['vel'].astype(np.float32)
-masses = galaxy_data['mass'].astype(np.float32)
+masses = galaxy_data['mass'].astype(np.float32)"""
+
+positions, velocities, masses = (
+    import_galaxy("Outputs/ellipse_importance_1052.npz",
+                  "Outputs/diffuse_sphere_importance_1052.npz",
+               400.0))
+
 
 # Centre the galaxy
 positions += 0.5 * np.asarray(box_size, dtype=float) - positions.mean(axis=0)
