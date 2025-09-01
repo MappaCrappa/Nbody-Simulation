@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 grid_size = 200                        # Taxing
 box_size = 10000.0
 dt = 0.005
-steps = 10000
+steps = 1000
 CIC_interpolation = True              # NGP/CIC
 
 #Configure logging
@@ -28,6 +28,7 @@ positions, velocities, masses = (import_galaxy(
                         separation = 400.0,
                         direction = (1, 0, 0),
                         velocity = (0, 1000, 0)))
+
 # Centre the simulation
 positions += 0.5 * np.asarray(box_size, dtype=float) - positions.mean(axis=0)
 

@@ -258,22 +258,34 @@ def generate_diffuse_sphere_importance(N_particles, R, M_tot, seed=None):
        - Masses use importance sampling to approximate a Plummer density:
            ρ_plummer(r) ∝ (1 + (r/a)^2)^(-5/2)
            w_i ∝ ρ_plummer(r_i) / q(x_i)
-         Masses are normalized to sum to M_tot.
+         Masses are normalised to sum to M_tot.
        - Velocities are set to circular speeds v = sqrt(M_enc(r)/r) with tangential directions.
          M_enc(r) is computed from the cumulative sum of the discrete masses.
-       - G = 1 is assumed.
      """
     rng = np.random.default_rng(seed)
-    N = int(N_particles)
-    a = float(R)
 
-    # 1) Positions: 3D normal proposal q(x) with std=a (simple and isotropic)
-    positions = rng.normal(scale=a, size=(N, 3)).astype(float)
+    # Proportions of particle populations by mass
+    Stellar_fraction = 0.7
+    M_stellar = Stellar_fraction * M_tot
+    M_dark = M_tot - M_stellar
+
+    # Labels by row order
+    N_star = int(round(Stellar_fraction * N_particles))
+    N_dark = N_particles - N_star
+    # Use dtype that fits 'Stellar'
+    labels = np.empty(N_particles, dtype='U5')
+    labels[:N_star] = 'Star'
+    labels[N_star:] = 'DM'
+
+    print(labels)
+
+    # 1) Positions: 3D normal proposal q(x) with std=R (simple and isotropic)
+    positions = rng.normal(scale=R, size=(N_particles, 3)).astype(float)
     r = np.linalg.norm(positions, axis=1)
-    x = r / (a + 0.0)
+    x = r / R
 
     # 2) Importance weights for Plummer density vs. 3D normal proposal
-    #    Use log-weights for numerical stability; constants cancel after normalization.
+    #    Use log-weights for numerical stability; constants cancel after normalisation.
     #    ρ*(r) ∝ (1 + x^2)^(-5/2), q*(x) ∝ exp(-x^2/2)  =>  w ∝ (1 + x^2)^(-5/2) * exp(+x^2/2)
     logw = -2.5 * np.log1p(x * x) + 0.5 * (x * x)
     logw -= np.max(logw)
@@ -288,12 +300,12 @@ def generate_diffuse_sphere_importance(N_particles, R, M_tot, seed=None):
     Menc_sorted = np.cumsum(m_sorted)  # includes self; simple and stable
 
     #    - Circular speed v = sqrt(M_enc(r)/r); handle r=0 safely
-    v_sorted = np.zeros(N, dtype=float)
+    v_sorted = np.zeros(N_particles, dtype=float)
     nonzero = r_sorted > 0
     v_sorted[nonzero] = np.sqrt(Menc_sorted[nonzero] / r_sorted[nonzero])
 
     #    - Map v back to original particle order
-    vmag = np.empty(N, dtype=float)
+    vmag = np.empty(N_particles, dtype=float)
     vmag[idx] = v_sorted
 
     # 4) Build tangential unit vectors perpendicular to r-hat
@@ -301,7 +313,7 @@ def generate_diffuse_sphere_importance(N_particles, R, M_tot, seed=None):
     safe = r > 0
     rhat[safe] = positions[safe] / r[safe, None]
 
-    q = rng.normal(size=(N, 3))
+    q = rng.normal(size=(N_particles, 3))
     tang = np.cross(rhat, q)
     tn = np.linalg.norm(tang, axis=1)
 
@@ -404,6 +416,7 @@ def generate_galaxy(
         b: float | None = None,
         c: float | None = None,
         M_tot: float | None = 1.0,
+        dm_factor: float = 0.0,
         seed: int | None = None,
 ):
     if morphology == "disk":
