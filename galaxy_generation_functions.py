@@ -1,6 +1,11 @@
 import numpy as np
+from enum import StrEnum
 import matplotlib.pyplot as plt
 from typing import Literal, overload
+
+class Type(StrEnum):
+    Star = "1"
+    Dark = "2"
 
 def virial_ellipsoid(pos, mass, a, b, c, G = 1.0, seed=None,
     disp: float = 0.1,             # fraction of v_c used as in-plane dispersion
@@ -274,8 +279,8 @@ def generate_diffuse_sphere_importance(N_particles, R, M_tot, seed=None):
     N_dark = N_particles - N_star
     # Use dtype that fits 'Stellar'
     labels = np.empty(N_particles, dtype='U5')
-    labels[:N_star] = 'Star'
-    labels[N_star:] = 'DM'
+    labels[:N_star] = Type.Star.value
+    labels[N_star:] = Type.Dark.value
 
     print(labels)
 
@@ -336,7 +341,7 @@ def generate_diffuse_sphere_importance(N_particles, R, M_tot, seed=None):
     # 5) Final velocities: tangential direction with circular speed
     velocities = tang * vmag[:, None]
 
-    return positions, velocities, masses
+    return positions, velocities, masses, labels
 
 
 def save_galaxy_npz(path, positions, masses, velocities=None):
@@ -349,11 +354,14 @@ def save_galaxy_npz(path, positions, masses, velocities=None):
         velocities = np.zeros_like(positions)
     np.savez(file=path, pos=positions, vel=velocities, mass=masses)
 
-def view_configuration(positions, masses, title=None):
+def view_configuration(positions, masses, labels, title=None):
     xy = positions[:, :2]
-    s = np.log10(masses/np.min(masses))  # Ratio scaling (Scaling error for equal masses)
+    stellar = xy[labels == Type.Star.value]
+    dark = xy[labels == Type.Dark.value]
+    #s = np.log10(masses/np.min(masses))  # Ratio scaling (Scaling error for equal masses)
     plt.figure(figsize=(5, 5))
-    plt.scatter(xy[:, 0], xy[:, 1], s=s, c='k', alpha=0.5, linewidths=0)
+    plt.scatter(stellar[:, 0], stellar[:, 1], s=1, c='yellow', alpha=0.5, linewidths=0)
+    plt.scatter(dark[:, 0], dark[:, 1], s=1, c='purple', alpha=0.5, linewidths=0)
     ax = plt.gca()
     ax.set_aspect('equal', 'box')
     xr = xy[:, 0].max() - xy[:, 0].min()
@@ -431,8 +439,8 @@ def generate_galaxy(
     elif morphology == "ellipse":
             positions, velocities, masses = generate_ellipse_importance(N_particles, a, b, c, M_tot, seed)
     elif morphology == "diffuse_sphere":
-            positions, velocities, masses = generate_diffuse_sphere_importance(N_particles, R, M_tot, seed)
+            positions, velocities, masses, labels = generate_diffuse_sphere_importance(N_particles, R, M_tot, seed)
     else:
         raise ValueError(f"Unknown morphology: {morphology!r}")
     save_galaxy_npz(f"Outputs/{morphology}_{sampling}_{seed}.npz", positions, masses, velocities)
-    view_configuration(positions, masses, title=f"{morphology}_{sampling}_{seed}")
+    view_configuration(positions, masses, labels, title=f"{morphology}_{sampling}_{seed}")
