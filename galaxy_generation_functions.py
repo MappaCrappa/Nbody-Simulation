@@ -358,10 +358,14 @@ def view_configuration(positions, masses, labels, title=None):
     xy = positions[:, :2]
     stellar = xy[labels == Type.Star.value]
     dark = xy[labels == Type.Dark.value]
-    #s = np.log10(masses/np.min(masses))  # Ratio scaling (Scaling error for equal masses)
+    m_star = masses[labels == Type.Star.value]
+    m_dark = masses[labels == Type.Dark.value]
+    s_star = (m_star/np.min(m_star))  # Ratio scaling (Scaling error for equal masses)
+    s_dark = (m_dark/np.min(m_dark))
+    plt.style.use('dark_background')
     plt.figure(figsize=(5, 5))
-    plt.scatter(stellar[:, 0], stellar[:, 1], s=1, c='yellow', alpha=0.5, linewidths=0)
-    plt.scatter(dark[:, 0], dark[:, 1], s=1, c='purple', alpha=0.5, linewidths=0)
+    plt.scatter(stellar[:, 0], stellar[:, 1], s=s_star, c='yellow', alpha=0.5, linewidths=0)
+    plt.scatter(dark[:, 0], dark[:, 1], s=s_dark, c='purple', alpha=0.5, linewidths=0)
     ax = plt.gca()
     ax.set_aspect('equal', 'box')
     xr = xy[:, 0].max() - xy[:, 0].min()
