@@ -180,18 +180,15 @@ def force_CIC(potential_gradient: np.ndarray, positions: np.ndarray, grid_size: 
     return forces
 
 #Visualisation
-def pyvista_mp4(trajectory: list, box_size: float, labels, output_path: str ="Outputs/pm_nbody_sim.mp4", fps: int=20):
+def pyvista_mp4(trajectory: list, box_size: float, labels, masses, output_path: str ="Outputs/pm_nbody_sim.mp4", fps: int=20):
 
     #Make trajectory a numpy array
     trajectory = np.asarray(trajectory)
-    labels = np.asarray(labels)
-    mask_star = (labels == Type.Star.value)
-    mask_dark = (labels == Type.Dark.value)
     trajectory_star = trajectory[:, labels == Type.Star.value, :]
     trajectory_dark = trajectory[:, labels == Type.Dark.value, :]
 
     #Plotter configuration
-    plotter = pv.Plotter(off_screen=True, window_size=(1920, 1080))
+    plotter = pv.Plotter(off_screen=True, window_size=(1920, 1088))
     plotter.set_background("black")
 
     # Particle Populations - Render_points_as_spheres = True has a bug on AMD GPUs on Windows where it produces no output -> Set to False
@@ -200,13 +197,15 @@ def pyvista_mp4(trajectory: list, box_size: float, labels, output_path: str ="Ou
     plotter.add_points(cloud_star, color="yellow", point_size=2, render_points_as_spheres=False)
     plotter.add_points(cloud_dark, color="purple", point_size=2, render_points_as_spheres=False)
 
+    # Mass scaling of particles
+
     # Bounding Mesh
     bounds = pv.Cube(center=(box_size / 2, box_size / 2, box_size / 2), x_length=box_size, y_length=box_size, z_length=box_size)
     plotter.add_mesh(bounds, color='gray', style='wireframe', opacity=0.25, line_width=1)
 
     # Lock camera (saves recalculating)
     plotter.view_isometric()
-    plotter.camera.zoom(8.0)
+    plotter.camera.zoom(6.0)
 
     #Write frames
     plotter.open_movie(output_path, framerate=fps)
@@ -251,8 +250,8 @@ def import_galaxy(path1, path2=None, separation=1.0, direction=(1, 0, 0), veloci
         positions1 = galaxy1_data['pos'].astype(np.float32)
         velocities1 = galaxy1_data['vel'].astype(np.float32)
         masses1 = galaxy1_data['mass'].astype(np.float32)
-        #labels1 = galaxy1_data['labels'].astype(np.float32)
-        labels1 = np.full(positions1.shape[0], Type.Star.value)
+        labels1 = galaxy1_data['labels']
+        #labels1 = np.full(positions1.shape[0], Type.Star.value)
     if path2 is None:
         return positions1, velocities1, masses1
 

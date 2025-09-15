@@ -200,6 +200,8 @@ def generate_ellipse_importance(
     """
     rng = np.random.default_rng(seed)
 
+    labels = np.array([Type.Star.value] * N_particles, dtype='U5')
+
     # Sample from the proposal aligned with the ellipsoid axes
     sigmas = np.array([a, b, c], dtype=np.float64)
     pos = rng.normal(0.0, sigmas, size=(N_particles, 3)).astype(np.float64, copy=False)
@@ -222,7 +224,7 @@ def generate_ellipse_importance(
     mass = M_tot * w
 
     vel = virial_ellipsoid(pos, mass, a=a, b=b, c=c, G=1.0)
-    return pos, vel, mass
+    return pos, vel, mass, labels
 
 def generate_diffuse_sphere(N_particles: int, R: float = 10.0, M_tot: float = 1.0, seed: int | None = None):
     rng = np.random.default_rng(seed)
@@ -281,7 +283,7 @@ def generate_diffuse_sphere_importance(N_particles, R, M_tot, seed=None):
     mask_star = (labels == Type.Star.value)
     mask_dark = (labels == Type.Dark.value)
 
-    R_dm = 5*R #temp guesstimate
+    R_dm = 2*R #temp guesstimate
 
     # Stellar & Halo Positions: 3D Gaussian proposal each (simple and isotropic)
     positions = np.empty((N_particles, 3), dtype=float)
@@ -380,7 +382,9 @@ def view_configuration(positions, masses, labels, title=None):
     m_star = masses[labels == Type.Star.value]
     m_dark = masses[labels == Type.Dark.value]
     s_star = (m_star/np.min(m_star))  # Ratio scaling (Scaling error for equal masses)
-    s_dark = (m_dark/np.min(m_dark))
+    if m_dark.size > 0:
+        s_dark = (m_dark/np.min(m_dark))
+    else: s_dark = 0
     plt.style.use('dark_background')
     plt.figure(figsize=(5, 5))
     plt.scatter(stellar[:, 0], stellar[:, 1], s=s_star, c='yellow', alpha=0.5, linewidths=0)
@@ -460,7 +464,7 @@ def generate_galaxy(
         else:
             raise ValueError(f"Unknown sampling: {sampling!r}")
     elif morphology == "ellipse":
-            positions, velocities, masses = generate_ellipse_importance(N_particles, a, b, c, M_tot, seed)
+            positions, velocities, masses, labels = generate_ellipse_importance(N_particles, a, b, c, M_tot, seed)
     elif morphology == "diffuse_sphere":
             positions, velocities, masses, labels = generate_diffuse_sphere_importance(N_particles, R, M_tot, seed)
     else:

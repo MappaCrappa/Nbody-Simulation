@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 #Simulation parameters (to be replaced with galaxy setup)
 grid_size = 100                        # Taxing
-box_size = 10000.0
+box_size = 10000
 dt = 0.005
 steps = 500
 CIC_interpolation = True              # NGP/CIC
@@ -27,7 +27,7 @@ positions, velocities, masses, labels = (import_galaxy(
                   "Outputs/diffuse_sphere_importance_1052.npz",
                         separation = 400.0,
                         direction = (0.67, 0.33, 0),
-                        velocity = (-3000, 2000, 0)))
+                        velocity = (-3000, 300, 0)))
 
 # Centre the simulation
 positions += 0.5 * np.asarray(box_size, dtype=float) - positions.mean(axis=0)
@@ -80,7 +80,7 @@ plt.legend()
 plt.show()
 
 #Visualisation (Matplotlib_vis / Pyvista_mp4 / Pyvista_3D)
-pyvista_mp4(trajectory, box_size, labels)
+pyvista_mp4(trajectory, box_size, labels, masses)
 
 print('Simulation and visualization complete!')
 print(f"Simulation completed in {elapsed_time(start_time):.2f} seconds.")
