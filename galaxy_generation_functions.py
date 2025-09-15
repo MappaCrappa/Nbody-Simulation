@@ -270,32 +270,51 @@ def generate_diffuse_sphere_importance(N_particles, R, M_tot, seed=None):
     rng = np.random.default_rng(seed)
 
     # Proportions of particle populations by mass
-    Stellar_fraction = 0.7
+    Stellar_fraction = 0.1
     M_stellar = Stellar_fraction * M_tot
-    M_dark = M_tot - M_stellar
+    M_dark = (1 - Stellar_fraction) * M_tot
 
     # Labels by row order
     N_star = int(round(Stellar_fraction * N_particles))
     N_dark = N_particles - N_star
-    # Use dtype that fits 'Stellar'
-    labels = np.empty(N_particles, dtype='U5')
-    labels[:N_star] = Type.Star.value
-    labels[N_star:] = Type.Dark.value
+    labels = np.array([Type.Star.value] * N_star + [Type.Dark.value] * (N_dark), dtype='U5')
+    mask_star = (labels == Type.Star.value)
+    mask_dark = (labels == Type.Dark.value)
 
-    print(labels)
+    R_dm = 5*R #temp guesstimate
 
-    # 1) Positions: 3D normal proposal q(x) with std=R (simple and isotropic)
-    positions = rng.normal(scale=R, size=(N_particles, 3)).astype(float)
-    r = np.linalg.norm(positions, axis=1)
-    x = r / R
+    # Stellar & Halo Positions: 3D Gaussian proposal each (simple and isotropic)
+    positions = np.empty((N_particles, 3), dtype=float)
+    positions[labels == Type.Star.value] = rng.normal(scale=R, size=(N_star, 3)).astype(float)
+    positions[labels == Type.Dark.value] = rng.normal(scale=R_dm, size=(N_dark, 3)).astype(float)
 
-    # 2) Importance weights for Plummer density vs. 3D normal proposal
-    #    Use log-weights for numerical stability; constants cancel after normalisation.
-    #    ρ*(r) ∝ (1 + x^2)^(-5/2), q*(x) ∝ exp(-x^2/2)  =>  w ∝ (1 + x^2)^(-5/2) * exp(+x^2/2)
-    logw = -2.5 * np.log1p(x * x) + 0.5 * (x * x)
-    logw -= np.max(logw)
-    w = np.exp(logw)
-    masses = (M_tot * w / np.sum(w)).astype(float)
+    # Stellar Plummer masses vs. 3D normal proposal
+    # ρ*(r) ∝ (1 + x^2)^(-5/2), q*(x) ∝ exp(-x^2/2)  =>  w ∝ (1 + x^2)^(-5/2) * exp(+x^2/2)
+    r_star = np.linalg.norm(positions[mask_star], axis=1)
+    x_star = r_star / R
+    logw_star = -2.5 * np.log1p(x_star * x_star) + 0.5 * (x_star * x_star)
+    logw_star -= logw_star.max()
+    w_star = np.exp(logw_star)
+    m_star = (M_stellar * w_star / np.sum(w_star)).astype(float)
+
+    # Dark Matter (NFW masses)
+    r_dark = np.linalg.norm(positions[mask_dark], axis=1)
+    x_dark = np.clip(r_dark / R_dm, 1e-12, None)
+    # ρ_NFW ∝ 1 / [x (1 + x)^2], q ∝ exp(-x^2/2)  =>  w ∝ x^{-1}(1+x)^{-2}exp(+x^2/2)
+    logw_dark = -np.log(x_dark) - 2.0 * np.log1p(x_dark) + 0.5 * (x_dark * x_dark)
+    logw_dark -= logw_dark.max()
+    w_dark = np.exp(logw_dark)
+    m_dark = (M_dark * w_dark / np.sum(w_dark)).astype(float)
+
+    # Combined masses aligned with labels
+    masses = np.empty(N_particles, dtype=float)
+    masses[mask_star] = m_star
+    masses[mask_dark] = m_dark
+
+    # Combined radii aligned with labels
+    r = np.empty(N_particles, dtype=float)
+    r[mask_star] = r_star
+    r[mask_dark] = r_dark
 
     # 3) Tangential circular velocities from enclosed mass of the discrete system
     #    - Sort by radius, build cumulative enclosed mass
@@ -344,7 +363,7 @@ def generate_diffuse_sphere_importance(N_particles, R, M_tot, seed=None):
     return positions, velocities, masses, labels
 
 
-def save_galaxy_npz(path, positions, masses, velocities=None):
+def save_galaxy_npz(path, positions, masses, labels, velocities=None):
     """
     Save a configuration you can reload later.
     path: e.g., "disk_config.npz"
@@ -352,7 +371,7 @@ def save_galaxy_npz(path, positions, masses, velocities=None):
     """
     if velocities is None:
         velocities = np.zeros_like(positions)
-    np.savez(file=path, pos=positions, vel=velocities, mass=masses)
+    np.savez(file=path, pos=positions, vel=velocities, mass=masses, labels=labels)
 
 def view_configuration(positions, masses, labels, title=None):
     xy = positions[:, :2]
@@ -365,7 +384,7 @@ def view_configuration(positions, masses, labels, title=None):
     plt.style.use('dark_background')
     plt.figure(figsize=(5, 5))
     plt.scatter(stellar[:, 0], stellar[:, 1], s=s_star, c='yellow', alpha=0.5, linewidths=0)
-    plt.scatter(dark[:, 0], dark[:, 1], s=s_dark, c='purple', alpha=0.5, linewidths=0)
+    plt.scatter(dark[:, 0], dark[:, 1], s=s_dark, c='slateblue', alpha=0.5, linewidths=0)
     ax = plt.gca()
     ax.set_aspect('equal', 'box')
     xr = xy[:, 0].max() - xy[:, 0].min()
@@ -446,5 +465,5 @@ def generate_galaxy(
             positions, velocities, masses, labels = generate_diffuse_sphere_importance(N_particles, R, M_tot, seed)
     else:
         raise ValueError(f"Unknown morphology: {morphology!r}")
-    save_galaxy_npz(f"Outputs/{morphology}_{sampling}_{seed}.npz", positions, masses, velocities)
+    save_galaxy_npz(f"Outputs/{morphology}_{sampling}_{seed}.npz", positions, masses, labels, velocities)
     view_configuration(positions, masses, labels, title=f"{morphology}_{sampling}_{seed}")

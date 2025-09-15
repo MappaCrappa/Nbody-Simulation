@@ -2,10 +2,10 @@ from functions import *
 import matplotlib.pyplot as plt
 
 #Simulation parameters (to be replaced with galaxy setup)
-grid_size = 200                        # Taxing
+grid_size = 100                        # Taxing
 box_size = 10000.0
 dt = 0.005
-steps = 1000
+steps = 500
 CIC_interpolation = True              # NGP/CIC
 
 #Configure logging
@@ -22,12 +22,12 @@ start_time = time.time()
 # Import galaxies
 
 # Add a function that chooses the galaxy to import with optional second galaxy and then the separation
-positions, velocities, masses = (import_galaxy(
+positions, velocities, masses, labels = (import_galaxy(
                   "Outputs/ellipse_importance_1052.npz",
                   "Outputs/diffuse_sphere_importance_1052.npz",
                         separation = 400.0,
-                        direction = (1, 0, 0),
-                        velocity = (0, 1000, 0)))
+                        direction = (0.67, 0.33, 0),
+                        velocity = (-3000, 2000, 0)))
 
 # Centre the simulation
 positions += 0.5 * np.asarray(box_size, dtype=float) - positions.mean(axis=0)
@@ -80,7 +80,7 @@ plt.legend()
 plt.show()
 
 #Visualisation (Matplotlib_vis / Pyvista_mp4 / Pyvista_3D)
-pyvista_mp4(trajectory, box_size)
+pyvista_mp4(trajectory, box_size, labels)
 
 print('Simulation and visualization complete!')
 print(f"Simulation completed in {elapsed_time(start_time):.2f} seconds.")

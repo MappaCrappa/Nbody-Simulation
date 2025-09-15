@@ -5,6 +5,7 @@ from scipy.fft import fftn, ifftn
 import pyvista as pv
 from pyvistaqt import BackgroundPlotter
 import threading
+from galaxy_generation_functions import Type
 
 # Nearest Grid Point assignment
 def NGP(positions: np.ndarray, grid_size: int, box_size: float, masses: np.ndarray)-> np.ndarray:
@@ -179,18 +180,25 @@ def force_CIC(potential_gradient: np.ndarray, positions: np.ndarray, grid_size: 
     return forces
 
 #Visualisation
-def pyvista_mp4(trajectory: list, box_size: float, output_path: str ="Outputs/pm_nbody_sim.mp4", fps: int=20):
+def pyvista_mp4(trajectory: list, box_size: float, labels, output_path: str ="Outputs/pm_nbody_sim.mp4", fps: int=20):
 
     #Make trajectory a numpy array
     trajectory = np.asarray(trajectory)
+    labels = np.asarray(labels)
+    mask_star = (labels == Type.Star.value)
+    mask_dark = (labels == Type.Dark.value)
+    trajectory_star = trajectory[:, labels == Type.Star.value, :]
+    trajectory_dark = trajectory[:, labels == Type.Dark.value, :]
 
     #Plotter configuration
-    plotter = pv.Plotter(off_screen=True, window_size=(800, 800))
+    plotter = pv.Plotter(off_screen=True, window_size=(1920, 1080))
     plotter.set_background("black")
 
     # Particle Populations - Render_points_as_spheres = True has a bug on AMD GPUs on Windows where it produces no output -> Set to False
-    cloud = pv.PolyData(trajectory[0])
-    plotter.add_points(cloud, color="white", point_size=1, render_points_as_spheres=False)
+    cloud_star = pv.PolyData(trajectory_star[0])
+    cloud_dark = pv.PolyData(trajectory_dark[0])
+    plotter.add_points(cloud_star, color="yellow", point_size=2, render_points_as_spheres=False)
+    plotter.add_points(cloud_dark, color="purple", point_size=2, render_points_as_spheres=False)
 
     # Bounding Mesh
     bounds = pv.Cube(center=(box_size / 2, box_size / 2, box_size / 2), x_length=box_size, y_length=box_size, z_length=box_size)
@@ -204,7 +212,8 @@ def pyvista_mp4(trajectory: list, box_size: float, output_path: str ="Outputs/pm
     plotter.open_movie(output_path, framerate=fps)
     try:
         for i in range(trajectory.shape[0]):
-            cloud.points[:] = trajectory[i]          # Update all particles
+            cloud_star.points[:] = trajectory_star[i]          # Update all star
+            cloud_dark.points[:] = trajectory_dark[i]           # Update all dark
             plotter.write_frame()                    # Renders and appends the frame
     finally:
         plotter.close()
@@ -242,6 +251,8 @@ def import_galaxy(path1, path2=None, separation=1.0, direction=(1, 0, 0), veloci
         positions1 = galaxy1_data['pos'].astype(np.float32)
         velocities1 = galaxy1_data['vel'].astype(np.float32)
         masses1 = galaxy1_data['mass'].astype(np.float32)
+        #labels1 = galaxy1_data['labels'].astype(np.float32)
+        labels1 = np.full(positions1.shape[0], Type.Star.value)
     if path2 is None:
         return positions1, velocities1, masses1
 
@@ -249,6 +260,7 @@ def import_galaxy(path1, path2=None, separation=1.0, direction=(1, 0, 0), veloci
         positions2 = galaxy2_data['pos'].astype(np.float32)
         velocities2 = galaxy2_data['vel'].astype(np.float32)
         masses2 = galaxy2_data['mass'].astype(np.float32)
+        labels2 = galaxy2_data['labels']
 
     # Centre of Mass
     com1 = (masses1[:, None] * positions1).sum(0) / masses1.sum()
@@ -277,7 +289,9 @@ def import_galaxy(path1, path2=None, separation=1.0, direction=(1, 0, 0), veloci
     positions = np.vstack((positions1, positions2))
     velocities = np.vstack((velocities1, velocities2))
     masses   = np.concatenate((masses1, masses2))
-    return positions, velocities, masses
+    labels   = np.concatenate((labels1, labels2))
+
+    return positions, velocities, masses, labels
 
 
 #Diagnostic Functions
