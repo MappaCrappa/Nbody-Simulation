@@ -180,12 +180,15 @@ def force_CIC(potential_gradient: np.ndarray, positions: np.ndarray, grid_size: 
     return forces
 
 #Visualisation
-def pyvista_mp4(trajectory: list, box_size: float, labels, masses, output_path: str ="Outputs/pm_nbody_sim.mp4", fps: int=20):
+def pyvista_mp42(trajectory: list, box_size: float, labels, masses, output_path: str ="Outputs/pm_nbody_sim.mp4", fps: int=20):
 
     #Make trajectory a numpy array
-    trajectory = np.asarray(trajectory)
-    trajectory_star = trajectory[:, labels == Type.Star.value, :]
-    trajectory_dark = trajectory[:, labels == Type.Dark.value, :]
+    #trajectory = np.asarray(trajectory)
+    #trajectory_star = trajectory[:, labels == Type.Star.value, :]
+    #trajectory_dark = trajectory[:, labels == Type.Dark.value, :]
+
+    trajectory_star = [frame[labels == Type.Star.value] for frame in trajectory]
+    trajectory_dark = [frame[labels == Type.Dark.value] for frame in trajectory]
 
     #Plotter configuration
     plotter = pv.Plotter(off_screen=True, window_size=(1920, 1088))
@@ -194,7 +197,7 @@ def pyvista_mp4(trajectory: list, box_size: float, labels, masses, output_path: 
     # Particle Populations - Render_points_as_spheres = True has a bug on AMD GPUs on Windows where it produces no output -> Set to False
     cloud_star = pv.PolyData(trajectory_star[0])
     cloud_dark = pv.PolyData(trajectory_dark[0])
-    plotter.add_points(cloud_star, color="yellow", point_size=2, render_points_as_spheres=False)
+    plotter.add_points(cloud_star, color="gold", point_size=2, render_points_as_spheres=False)
     plotter.add_points(cloud_dark, color="purple", point_size=2, render_points_as_spheres=False)
 
     # Mass scaling of particles
@@ -210,12 +213,64 @@ def pyvista_mp4(trajectory: list, box_size: float, labels, masses, output_path: 
     #Write frames
     plotter.open_movie(output_path, framerate=fps)
     try:
-        for i in range(trajectory.shape[0]):
-            cloud_star.points[:] = trajectory_star[i]          # Update all star
-            cloud_dark.points[:] = trajectory_dark[i]           # Update all dark
-            plotter.write_frame()                    # Renders and appends the frame
+        """for i in range(trajectory.shape[0]):
+            cloud_star.points[:] = trajectory_star[i]  # Update all star
+            cloud_dark.points[:] = trajectory_dark[i]  # Update all dark
+            plotter.write_frame()  # Renders and appends the frame """
+        for frame in trajectory:
+            cloud_star.points = np.asarray(frame, dtype=float)
+            cloud_dark.points = np.asarray(frame, dtype=float)
+            plotter.write_frame()
     finally:
         plotter.close()
+
+def pyvista_mp4(trajectory: list, box_size: float, labels, masses, output_path: str ="Outputs/pm_nbody_sim.mp4", fps: int=20):
+
+    # Build index lists
+    star_idx = [i for i, t in enumerate(labels) if t == Type.Star.value]
+    dark_idx = [i for i, t in enumerate(labels) if t == Type.Dark.value]
+
+    # Initialize point clouds from the first frame using those indices
+    frame0 = trajectory[0]
+    if isinstance(frame0, np.ndarray):
+        cloud_star = pv.PolyData(frame0[star_idx])
+        cloud_dark = pv.PolyData(frame0[dark_idx])
+    else:
+        cloud_star = pv.PolyData([frame0[i] for i in star_idx])
+        cloud_dark = pv.PolyData([frame0[i] for i in dark_idx])
+
+    #Plotter configuration
+    plotter = pv.Plotter(off_screen=True, window_size=(1920, 1088))
+    plotter.set_background("black")
+
+    # Particle Populations - Render_points_as_spheres = True has a bug on AMD GPUs on Windows where it produces no output -> Set to False
+    plotter.add_points(cloud_star, color="gold", point_size=2, render_points_as_spheres=False)
+    plotter.add_points(cloud_dark, color="purple", point_size=2, render_points_as_spheres=False)
+
+    # Mass scaling of particles
+
+    # Bounding Mesh
+    bounds = pv.Cube(center=(box_size / 2, box_size / 2, box_size / 2), x_length=box_size, y_length=box_size, z_length=box_size)
+    plotter.add_mesh(bounds, color='gray', style='wireframe', opacity=0.25, line_width=1)
+
+    # Lock camera (saves recalculating)
+    plotter.view_isometric()
+    plotter.camera.zoom(6.0)
+
+    #Write frames
+    plotter.open_movie(output_path, framerate=fps)
+    try:
+        for frame in trajectory:
+            if isinstance(frame, np.ndarray):
+                cloud_star.points = frame[star_idx]
+                cloud_dark.points = frame[dark_idx]
+            else:
+                cloud_star.points = [frame[i] for i in star_idx]
+                cloud_dark.points = [frame[i] for i in dark_idx]
+            plotter.write_frame()
+    finally:
+        plotter.close()
+
 
 def pyvista_3D(trajectory, box_size, delay=20): #WIP non-functional
     plotter = BackgroundPlotter(window_size=(800, 800))

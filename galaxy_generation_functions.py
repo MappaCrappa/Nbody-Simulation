@@ -199,16 +199,33 @@ def generate_ellipse_importance(
       - "mass": (N,) masses summing to M_tot
     """
     rng = np.random.default_rng(seed)
-
     labels = np.array([Type.Star.value] * N_particles, dtype='U5')
+    """
+    # Proportions of particle populations by mass
+    Stellar_fraction = 0.1
+    M_stellar = Stellar_fraction * M_tot
+    M_dark = (1 - Stellar_fraction) * M_tot
+
+    # Labels by row order
+    N_star = int(round(Stellar_fraction * N_particles))
+    N_dark = N_particles - N_star
+    labels = np.array([Type.Star.value] * N_star + [Type.Dark.value] * (N_dark), dtype='U5')
+    mask_star = (labels == Type.Star.value)
+    mask_dark = (labels == Type.Dark.value)
+
+    R_dm = 2*a #temp guesstimate"""
 
     # Sample from the proposal aligned with the ellipsoid axes
     sigmas = np.array([a, b, c], dtype=np.float64)
-    pos = rng.normal(0.0, sigmas, size=(N_particles, 3)).astype(np.float64, copy=False)
+    positions = rng.normal(0.0, sigmas, size=(N_particles, 3)).astype(np.float64, copy=False)
+
+    #positions = np.empty((N_particles, 3), dtype=float)
+    #positions[labels == Type.Star.value] = rng.normal(0.0, sigmas, size=(N_star, 3)).astype(np.float64, copy=False)
+    #positions[labels == Type.Dark.value] = rng.normal(scale=R_dm, size=(N_dark, 3)).astype(float)
 
     # Ellipsoidal radius m and m^2
     inv_axes_sq = np.array([1.0/(a*a), 1.0/(b*b), 1.0/(c*c)], dtype=np.float64)
-    m2 = np.einsum("ij,j,ij->i", pos, inv_axes_sq, pos)
+    m2 = np.einsum("ij,j,ij->i", positions, inv_axes_sq, positions)
     m = np.sqrt(m2)
 
     # Target and proposal (unnormalized) log-densities
@@ -221,10 +238,10 @@ def generate_ellipse_importance(
     w = np.exp(log_w)
     w /= np.sum(w)
 
-    mass = M_tot * w
+    masses = M_tot * w
 
-    vel = virial_ellipsoid(pos, mass, a=a, b=b, c=c, G=1.0)
-    return pos, vel, mass, labels
+    velocities = virial_ellipsoid(positions, masses, a=a, b=b, c=c, G=1.0)
+    return positions, velocities, masses, labels
 
 def generate_diffuse_sphere(N_particles: int, R: float = 10.0, M_tot: float = 1.0, seed: int | None = None):
     rng = np.random.default_rng(seed)
@@ -373,7 +390,7 @@ def save_galaxy_npz(path, positions, masses, labels, velocities=None):
     """
     if velocities is None:
         velocities = np.zeros_like(positions)
-    np.savez(file=path, pos=positions, vel=velocities, mass=masses, labels=labels)
+    np.savez(file=path, positions=positions, velocities=velocities, masses=masses, labels=labels)
 
 def view_configuration(positions, masses, labels, title=None):
     xy = positions[:, :2]

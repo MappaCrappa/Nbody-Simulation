@@ -57,7 +57,7 @@ for step in range(steps):
     #Updating particle kinematics
     velocities += forces * dt
     positions += velocities * dt
-    positions = positions % box_size  # Apply periodic boundary
+    positions = positions.astype(np.float32) % box_size  # Apply periodic boundary
     trajectory.append(positions.copy())
 
     #Diagnostic Energy Tracker (every 10th step)
