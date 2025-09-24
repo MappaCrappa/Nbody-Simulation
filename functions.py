@@ -67,7 +67,7 @@ def CIC(positions: np.ndarray, grid_size: int, box_size: float, masses: np.ndarr
         density[i, j1, k1] += mass * wx0 * wy1 * wz1
         density[i1, j1, k1] += mass * wx1 * wy1 * wz1
 
-    return density
+    return density  # /cell_volume
 
 # Potential
 def compute_potential(density: np.ndarray, grid_size: int) -> np.ndarray:
@@ -302,18 +302,18 @@ def pyvista_3D(trajectory, box_size, delay=20): #WIP non-functional
 # Galaxy Importer
 def import_galaxy(path1, path2=None, separation=1.0, direction=(1, 0, 0), velocity=(0, 0, 0)):
     with np.load(path1) as galaxy1_data:
-        positions1 = galaxy1_data['pos'].astype(np.float32)
-        velocities1 = galaxy1_data['vel'].astype(np.float32)
-        masses1 = galaxy1_data['mass'].astype(np.float32)
+        positions1 = galaxy1_data['positions'].astype(np.float32)
+        velocities1 = galaxy1_data['velocities'].astype(np.float32)
+        masses1 = galaxy1_data['masses'].astype(np.float32)
         labels1 = galaxy1_data['labels']
         #labels1 = np.full(positions1.shape[0], Type.Star.value)
     if path2 is None:
         return positions1, velocities1, masses1
 
     with np.load(path2) as galaxy2_data:
-        positions2 = galaxy2_data['pos'].astype(np.float32)
-        velocities2 = galaxy2_data['vel'].astype(np.float32)
-        masses2 = galaxy2_data['mass'].astype(np.float32)
+        positions2 = galaxy2_data['positions'].astype(np.float32)
+        velocities2 = galaxy2_data['velocities'].astype(np.float32)
+        masses2 = galaxy2_data['masses'].astype(np.float32)
         labels2 = galaxy2_data['labels']
 
     # Centre of Mass

@@ -289,18 +289,19 @@ def generate_diffuse_sphere_importance(N_particles, R, M_tot, seed=None):
     rng = np.random.default_rng(seed)
 
     # Proportions of particle populations by mass
-    Stellar_fraction = 0.1
+    Stellar_fraction = 0.25 #0.004 DF2 & 0.25 NGC1052
     M_stellar = Stellar_fraction * M_tot
     M_dark = (1 - Stellar_fraction) * M_tot
 
     # Labels by row order
-    N_star = int(round(Stellar_fraction * N_particles))
+    #N_star = int(round(Stellar_fraction * N_particles))
+    N_star = int(0.5*N_particles)
     N_dark = N_particles - N_star
     labels = np.array([Type.Star.value] * N_star + [Type.Dark.value] * (N_dark), dtype='U5')
     mask_star = (labels == Type.Star.value)
     mask_dark = (labels == Type.Dark.value)
 
-    R_dm = 2*R #temp guesstimate
+    R_dm = 390 #96 DF2 (kpc) and 390 NGC1052 (kpc)
 
     # Stellar & Halo Positions: 3D Gaussian proposal each (simple and isotropic)
     positions = np.empty((N_particles, 3), dtype=float)
@@ -404,8 +405,8 @@ def view_configuration(positions, masses, labels, title=None):
     else: s_dark = 0
     plt.style.use('dark_background')
     plt.figure(figsize=(5, 5))
-    plt.scatter(stellar[:, 0], stellar[:, 1], s=s_star, c='yellow', alpha=0.5, linewidths=0)
     plt.scatter(dark[:, 0], dark[:, 1], s=s_dark, c='slateblue', alpha=0.5, linewidths=0)
+    plt.scatter(stellar[:, 0], stellar[:, 1], s=s_star, c='yellow', alpha=0.5, linewidths=0)
     ax = plt.gca()
     ax.set_aspect('equal', 'box')
     xr = xy[:, 0].max() - xy[:, 0].min()
