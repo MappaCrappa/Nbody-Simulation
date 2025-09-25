@@ -2,7 +2,7 @@ from functions import *
 import matplotlib.pyplot as plt
 
 #Simulation parameters (to be replaced with galaxy setup)
-grid_size = 160                        # Taxing
+grid_size = 100                        # Taxing
 box_size = 10000
 dt = 0.005
 steps = 500
@@ -23,12 +23,12 @@ start_time = time.time()
 
 # Add a function that chooses the galaxy to import with optional second galaxy and then the separation
 positions, velocities, masses, labels = (import_galaxy(
-                  "Outputs/diffuse_sphere_importance_42.npz",
+                  "Outputs/ellipse_importance_1052.npz",
                   "Outputs/diffuse_sphere_importance_1052.npz",
                         separation = 400.0,
                         direction = (0.67, 0.33, 0),        #Tinker
                         velocity = (-3000, 300, 0)))        #Tinker with this in particular (x,y,z velocities)
-
+#(-3000, 300, 0) with separation =400 and grid_size=100 for box_size=10000 gives good example
 # Centre the simulation
 positions += 0.5 * np.asarray(box_size, dtype=float) - positions.mean(axis=0)
 
